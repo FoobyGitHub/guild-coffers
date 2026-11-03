@@ -9,3 +9,5 @@
 ## X-Curse-Project-ID: 1782107
 
 Core.lua
+Tracker.lua
+UI.lua

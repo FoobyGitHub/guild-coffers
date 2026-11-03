@@ -2,16 +2,36 @@
 
 A passive guild tax addon for **World of Warcraft: Forever**. You choose a percentage of the gold you receive, and the addon deposits it into the guild bank when you next open it. A shared guild list shows who contributes, how much, and when.
 
-> **Status: early development.** This repository currently contains the project scaffold only. Planned features are listed below and are not built yet.
+> **Status: early test build.** Personal tax tracking and deposits are built but have only been tested against a simulated client so far, not the real Forever client. The guild features are planned and not built yet.
+
+## What works now
+
+- Your own tax rate (default 10%), set in the window or with `/coffers rate <0-100>`
+- Tracking of gold received: loot, quests, vendor sales and mail. Trades and bank or guild bank withdrawals are not counted.
+- Automatic deposit shortly after you open the guild bank. The addon confirms the gold really left, and warns you if the client blocks the deposit.
+- Manual deposits made while the guild bank is open are credited too.
+- Window (`/coffers`) showing what you owe, total donated and last donation.
+
+## Commands
+
+| Command | What it does |
+|---|---|
+| `/coffers` | Open or close the window |
+| `/coffers rate <0-100>` | Set your tax percentage |
+| `/coffers on` / `off` | Turn tracking on or off |
+| `/coffers status` | Show what you owe and have donated |
+| `/coffers deposit` | Deposit now (guild bank must be open) |
+| `/coffers debug` | Print a compatibility report to include in bug reports |
 
 ## Planned features
 
-- Per-player tax rate, set in the addon's own window
-- Automatic tracking of gold received, including inside instances
-- Automatic deposit when the guild bank is opened
 - Guild contributor list: who runs the addon, their rate, total donated, last donation
 - Background sync between guildmates over the guild addon channel (paused while in an instance)
 - Donation totals verified against the guild bank's money log; self-reported figures shown as unverified
+
+## Development
+
+The logic is tested against a fake WoW API under Lua 5.1: `pip install lupa` then `python3 tests/run.py`. This catches logic errors but is not a substitute for testing in the real client.
 
 ## Compatibility
 
