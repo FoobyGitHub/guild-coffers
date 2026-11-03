@@ -1,0 +1,10 @@
+## Interface: 16001
+## Title: Guild Coffers
+## Notes: Guild tax and contribution tracking for WoW: Forever.
+## Author: FoobyGitHub
+## Version: @project-version@
+## SavedVariables: GuildCoffersDB
+## X-Website: https://github.com/FoobyGitHub/guild-coffers
+## X-License: MIT
+
+Core.lua
