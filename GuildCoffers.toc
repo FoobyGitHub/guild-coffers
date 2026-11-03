@@ -6,5 +6,6 @@
 ## SavedVariables: GuildCoffersDB
 ## X-Website: https://github.com/FoobyGitHub/guild-coffers
 ## X-License: MIT
+## X-Curse-Project-ID: 1782107
 
 Core.lua
