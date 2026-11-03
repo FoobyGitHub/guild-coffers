@@ -11,6 +11,8 @@ All notable changes to Guild Coffers are recorded here.
 - Manual deposits made while the guild bank is open are credited too.
 - Settings window (`/coffers`) showing what you owe, total donated and last donation.
 - `/coffers status`, `/coffers on|off`, `/coffers deposit` and `/coffers debug` (compatibility report for bug reports).
+- The guild bank is detected both from game events and by hooking Blizzard's guild bank frame, so the automatic deposit still fires if this client opens the bank differently.
+- `/coffers watch` logs guild bank events for 60 seconds, to show what a client does when the bank opens.
 - Initial project scaffold for WoW: Forever (interface 16001).
 
 ### Not yet included

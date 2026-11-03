@@ -22,6 +22,7 @@ A passive guild tax addon for **World of Warcraft: Forever**. You choose a perce
 | `/coffers status` | Show what you owe and have donated |
 | `/coffers deposit` | Deposit now (guild bank must be open) |
 | `/coffers debug` | Print a compatibility report to include in bug reports |
+| `/coffers watch` | Log guild bank events for 60 seconds, then open the guild bank. Include the output in bug reports |
 
 ## Planned features
 

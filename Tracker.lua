@@ -156,6 +156,54 @@ ns.On("PLAYER_INTERACTION_MANAGER_FRAME_HIDE", function(_, interactionType)
     if kind then setOpen(kind, false) end
 end)
 
+-- Second way to notice the guild bank: hook Blizzard's frame itself, in case this
+-- client opens it without firing the events above. Harmless if the frame is absent.
+local function HookGuildBankFrame()
+    local f = _G.GuildBankFrame
+    if not f or ns.guildBankHooked then return end
+    local ok = pcall(function()
+        f:HookScript("OnShow", function() setOpen("guildbank", true) end)
+        f:HookScript("OnHide", function() setOpen("guildbank", false) end)
+    end)
+    if not ok then return end
+    ns.guildBankHooked = true
+    if f:IsShown() then setOpen("guildbank", true) end
+end
+ns.On("PLAYER_LOGIN", HookGuildBankFrame)
+ns.On("ADDON_LOADED", function(_, loaded)
+    if loaded == "Blizzard_GuildBankUI" then HookGuildBankFrame() end
+end)
+
+-- /coffers watch: print guild-bank-related events for a minute, so we can see exactly
+-- what this client does when the bank opens.
+local WATCH_SECONDS = 60
+local watchUntil = 0
+local WATCH_EVENTS = {
+    "GUILDBANKFRAME_OPENED", "GUILDBANKFRAME_CLOSED", "GUILDBANK_UPDATE_TABS",
+    "GUILDBANK_UPDATE_MONEY", "GUILDBANKBAGSLOTS_CHANGED", "GUILDBANK_UPDATE_TEXT",
+    "GUILDBANK_UPDATE_WITHDRAWMONEY", "PLAYER_INTERACTION_MANAGER_FRAME_SHOW",
+    "PLAYER_INTERACTION_MANAGER_FRAME_HIDE",
+}
+local watchRegistered = false
+
+function ns.StartWatch()
+    if not watchRegistered then
+        watchRegistered = true
+        for _, event in ipairs(WATCH_EVENTS) do
+            ns.On(event, function(ev, arg1)
+                if now() < watchUntil then
+                    ns.Print("watch: " .. ev .. (arg1 ~= nil and (" " .. tostring(arg1)) or ""))
+                end
+            end)
+        end
+    end
+    watchUntil = now() + WATCH_SECONDS
+    local f = _G.GuildBankFrame
+    ns.Print("watching guild bank events for " .. WATCH_SECONDS .. "s. Open the guild bank now. "
+        .. "Blizzard GuildBankFrame: " .. (f and (f:IsShown() and "present, shown" or "present, hidden") or "not found")
+        .. ". Guild bank counted as open: " .. tostring(open.guildbank == true) .. ".")
+end
+
 ns.On("GUILDBANKFRAME_OPENED", function() setOpen("guildbank", true) end)
 ns.On("GUILDBANKFRAME_CLOSED", function() setOpen("guildbank", false) end)
 ns.On("BANKFRAME_OPENED", function() setOpen("bank", true) end)

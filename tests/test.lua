@@ -29,7 +29,7 @@ local function newState()
 end
 
 local function makeFrame(name)
-    local f = { scripts = {}, events = {} }
+    local f = { scripts = {}, events = {}, hooks = {} }
     setmetatable(f, { __index = function(_, k)
         return function(self) return self end   -- any other method is a no-op returning self
     end })
@@ -41,6 +41,7 @@ local function makeFrame(name)
         self.scripts[which] = fn
         if which == "OnEvent" then S.eventFrame = self end
     end
+    function f.HookScript(self, which, fn) self.hooks[which] = fn end
     function f.SetText(self, t) rawset(self, "_text", t) end
     function f.CreateFontString() return makeFrame() end
     function f.IsShown() return true end
@@ -77,6 +78,11 @@ local function installGlobals()
         end
     end
     _G.GuildCoffersDB = nil
+    _G.GuildBankFrame = nil
+    if S.guildBankFrame then
+        _G.GuildBankFrame = makeFrame()
+        _G.GuildBankFrame.IsShown = function() return false end
+    end
 end
 
 local function advance(dt)
@@ -254,6 +260,39 @@ do -- a client that rejects events does not break loading
     S.fire("PLAYER_INTERACTION_MANAGER_FRAME_SHOW", 10)
     advance(0.6)
     eq(#S.deposits, 1, "deposit works via interaction events alone")
+end
+
+do -- bank detected only through Blizzard's frame (no events fire at all)
+    local ns = fresh({ guildBankFrame = true,
+        rejectEvents = { GUILDBANKFRAME_OPENED = true, GUILDBANKFRAME_CLOSED = true } })
+    S.fire("PLAYER_INTERACTION_MANAGER_FRAME_SHOW", 999)  -- unrelated window
+    gain(100 * GOLD)
+    local bankFrame = _G.GuildBankFrame
+    truthy(bankFrame.hooks.OnShow, "guild bank frame hooked")
+    bankFrame.hooks.OnShow()
+    advance(0.6)
+    eq(#S.deposits, 1, "deposit triggered by the frame hook")
+    eq(ns.Char().donated, 10 * GOLD, "frame-hook deposit recorded")
+    gain(5 * GOLD)
+    eq(ns.Char().owed, 0, "bank withdrawal ignored while the frame is shown")
+    bankFrame.hooks.OnHide()
+    advance(2)
+    gain(10 * GOLD)
+    eq(ns.Char().owed, 1 * GOLD, "gold counts again after the frame hides")
+end
+
+do -- /coffers watch reports bank events for a limited time
+    local ns = fresh()
+    ns.HandleCommand("watch")
+    truthy(printedAny("watching guild bank events"), "watch announces itself")
+    S.fire("GUILDBANK_UPDATE_TABS")
+    truthy(printedAny("watch: GUILDBANK_UPDATE_TABS"), "watch prints a bank event")
+    S.fire("PLAYER_INTERACTION_MANAGER_FRAME_SHOW", 10)
+    truthy(printedAny("watch: PLAYER_INTERACTION_MANAGER_FRAME_SHOW 10"), "watch prints the interaction type")
+    advance(61)
+    local n = #S.printed
+    S.fire("GUILDBANK_UPDATE_TABS")
+    eq(#S.printed, n, "watch stops after 60 seconds")
 end
 
 do -- character key keeps spaces, window builds, status and unknown commands work

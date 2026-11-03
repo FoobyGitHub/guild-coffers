@@ -129,6 +129,7 @@ local function PrintHelp()
     print("  /coffers status - show what you owe and have donated")
     print("  /coffers deposit - deposit now (guild bank must be open)")
     print("  /coffers debug - print a compatibility report")
+    print("  /coffers watch - log guild bank events for 60s (for bug reports)")
 end
 
 local function PrintDebug()
@@ -177,6 +178,8 @@ function ns.HandleCommand(input)
         PrintStatus()
     elseif cmd == "deposit" then
         ns.TryDeposit(true)
+    elseif cmd == "watch" then
+        ns.StartWatch()
     else
         PrintHelp()
     end
