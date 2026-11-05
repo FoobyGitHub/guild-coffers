@@ -156,7 +156,8 @@ local function PrintDebug()
     print("  Enum.PlayerInteractionType: " .. yn(PI))
     if PI then
         print("    GuildBanker: " .. yn(PI.GuildBanker) .. ", Banker: " .. yn(PI.Banker)
-            .. ", AccountBanker: " .. yn(PI.AccountBanker) .. ", Trade: " .. yn(PI.Trade))
+            .. ", AccountBanker: " .. yn(PI.AccountBanker) .. ", Trade: " .. yn(PI.Trade)
+            .. ", Merchant: " .. yn(PI.Merchant) .. ", MailInfo: " .. yn(PI.MailInfo))
     end
     print("  Settings.RegisterCanvasLayoutCategory: " .. yn(Settings and Settings.RegisterCanvasLayoutCategory))
     print("  InterfaceOptions_AddCategory: " .. yn(InterfaceOptions_AddCategory))

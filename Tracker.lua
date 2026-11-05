@@ -10,6 +10,7 @@ local loggedIn = false
 local open = {}            -- open["guildbank"|"bank"|"trade"] = true while that window is open
 local graceUntil = {}
 local pending              -- { amount = copper, token = table } while a deposit is in flight
+local FlushChat            -- defined with the chat summary below; the windows code calls it
 
 ---------------------------------------------------------------------------
 -- Which windows are open (so withdrawals and trades are not counted as income)
@@ -22,6 +23,7 @@ do
         local map = {
             GuildBanker = "guildbank", Banker = "bank",
             AccountBanker = "bank", Trade = "trade",
+            Merchant = "merchant", MailInfo = "mail",
         }
         for name, kind in pairs(map) do
             if PI[name] ~= nil then kindByType[PI[name]] = kind end
@@ -52,6 +54,8 @@ local function setOpen(kind, state)
         if not open[kind] then return end
         open[kind] = false
         graceUntil[kind] = now() + GRACE
+        -- Finished at the vendor or mailbox: report everything from that visit at once.
+        if kind == "merchant" or kind == "mail" then FlushChat() end
     end
 end
 
@@ -117,13 +121,15 @@ end
 -- Gold tracking
 ---------------------------------------------------------------------------
 
--- Chat summary: gains that arrive close together (selling a bag of items, looting a
--- group of mobs) are added up and reported once, after things go quiet or the vendor
--- window closes, instead of one line per item.
-local SUMMARY_DELAY = 3.0
+-- Chat summary. Gold from loot, quests and the like is reported straight away. Gold
+-- received while a vendor or mailbox window is open is added up and reported once,
+-- when that window closes (so selling a bag of items gives one line, not one per item).
+-- The long timer is only a safety net in case a close event is ever missed.
+local FAILSAFE_DELAY = 60.0
+local windowFrames = { merchant = "MerchantFrame", mail = "MailFrame" }
 local pendingChat
 
-local function FlushChat()
+function FlushChat()
     local p = pendingChat
     pendingChat = nil
     if not p or not ns.db or not ns.db.showChat then return end
@@ -131,15 +137,31 @@ local function FlushChat()
         ns.CoinText(p.gain), ns.OwedText(p.tax), ns.OwedText(ns.Char().owed)))
 end
 
+-- Is this window open? If we think so but Blizzard's own frame says it is closed,
+-- we missed the close event: correct ourselves (which also prints the summary).
+local function WindowIsOpen(kind)
+    if not open[kind] then return false end
+    local f = _G[windowFrames[kind]]
+    if f and f.IsShown and not f:IsShown() then
+        setOpen(kind, false)
+        return false
+    end
+    return true
+end
+
 local function QueueChat(gain, tax)
     pendingChat = pendingChat or { gain = 0, tax = 0 }
     pendingChat.gain = pendingChat.gain + gain
     pendingChat.tax = pendingChat.tax + tax
-    local token = {}
-    pendingChat.token = token
-    C_Timer.After(SUMMARY_DELAY, function()
-        if pendingChat and pendingChat.token == token then FlushChat() end
-    end)
+    if WindowIsOpen("merchant") or WindowIsOpen("mail") then
+        local token = {}
+        pendingChat.token = token
+        C_Timer.After(FAILSAFE_DELAY, function()
+            if pendingChat and pendingChat.token == token then FlushChat() end
+        end)
+    else
+        FlushChat()
+    end
 end
 
 local function OnMoneyChanged()
@@ -176,7 +198,10 @@ ns.On("PLAYER_LOGIN", function()
     if ns.isSecret(lastMoney) then lastMoney = nil end
 end)
 ns.On("PLAYER_MONEY", OnMoneyChanged)
-ns.On("MERCHANT_CLOSED", function() if pendingChat then FlushChat() end end)
+ns.On("MERCHANT_SHOW", function() setOpen("merchant", true) end)
+ns.On("MERCHANT_CLOSED", function() setOpen("merchant", false) end)
+ns.On("MAIL_SHOW", function() setOpen("mail", true) end)
+ns.On("MAIL_CLOSED", function() setOpen("mail", false) end)
 
 ---------------------------------------------------------------------------
 -- Window tracking: modern interaction events, with classic-style fallbacks

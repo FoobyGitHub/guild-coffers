@@ -78,6 +78,14 @@ local function installGlobals()
     _G.GetMoney = function() if S.secret then return { secret = true } end return S.money end
     _G.issecretvalue = function(v) return type(v) == "table" and v.secret == true end
     _G.Enum = { PlayerInteractionType = { Trade = 3, Banker = 8, GuildBanker = 10, AccountBanker = 68 } }
+    if S.noWindowEnum then
+        _G.Enum.PlayerInteractionType.Merchant = nil
+    else
+        _G.Enum.PlayerInteractionType.Merchant = 5
+        _G.Enum.PlayerInteractionType.MailInfo = 17
+    end
+    _G.MerchantFrame = nil
+    _G.MailFrame = nil
     _G.C_Timer = { After = function(dt, fn) S.timers[#S.timers + 1] = { at = S.now + dt, fn = fn } end }
     _G.DepositGuildBankMoney = function(amount)
         S.deposits[#S.deposits + 1] = amount
@@ -400,35 +408,85 @@ do -- the panel shows which version is running
     eq(S.ns.panels[#S.ns.panels].version._text, "Version dev", "unpackaged copy shows dev")
 end
 
-do -- optional chat summary, batched rather than one line per gain
+do -- chat summary: straight away normally, held until the vendor window closes
     local ns = fresh()
     eq(ns.db.showChat, false, "chat summary is off by default")
-    gain(100 * GOLD); advance(5)
+    gain(100 * GOLD)
     eq(printedAny("received, tax"), false, "nothing printed when off")
     ns.HandleCommand("chat")
     eq(ns.db.showChat, true, "chat command turns it on")
+
+    gain(30)                                                   -- ordinary gain: no delay
+    truthy(printedAny("+30c received, tax 3c (total to keep: 10g 3c)"), "a normal gain is reported immediately")
+
+    S.fire("PLAYER_INTERACTION_MANAGER_FRAME_SHOW", 5)         -- vendor window opens
     local n = #S.printed
-    gain(2); advance(1); gain(2); advance(1); gain(1)          -- vendor-style gains close together
-    eq(#S.printed, n, "nothing printed while gains keep arriving")
-    advance(3.5)
-    eq(#S.printed, n + 1, "one summary once things go quiet")
-    truthy(printedAny("+5c received, tax <1c (total to keep: 10g)"), "summary adds the gains together")
-    gain(30)                                                   -- 3c of tax
-    S.fire("MERCHANT_CLOSED")
-    truthy(printedAny("+30c received, tax 3c (total to keep: 10g 3c)"), "closing the vendor prints the summary at once")
-    local k = #S.printed
-    advance(5)
-    eq(#S.printed, k, "no duplicate summary afterwards")
-    S.fire("PLAYER_INTERACTION_MANAGER_FRAME_SHOW", 3)         -- a trade
-    gain(10 * GOLD); advance(5)
-    eq(#S.printed, k, "no summary for gold that is not taxed")
+    gain(2); advance(10); gain(2); advance(10); gain(1)        -- selling items, slowly
+    eq(#S.printed, n, "nothing printed while the vendor window is open")
+    eq(ns.Char().collected, 100 * GOLD + 35, "vendor gold is still counted")
+    S.fire("PLAYER_INTERACTION_MANAGER_FRAME_HIDE", 5)         -- vendor window closes
+    eq(#S.printed, n + 1, "one summary the moment the vendor window closes")
+    truthy(printedAny("+5c received, tax <1c (total to keep: 10g 3c)"), "summary adds up the sales")
+    advance(100)
+    eq(#S.printed, n + 1, "no duplicate summary later")
+
+    local k = #S.printed                                       -- a trade is not taxed or reported
+    S.fire("PLAYER_INTERACTION_MANAGER_FRAME_SHOW", 3)
+    gain(10 * GOLD)
     S.fire("PLAYER_INTERACTION_MANAGER_FRAME_HIDE", 3)
     advance(2)
-    gain(30)
-    ns.HandleCommand("chat")                                   -- turn off with a summary pending
-    local j = #S.printed
-    advance(5)
-    eq(#S.printed, j, "pending summary dropped if chat is turned off")
+    eq(#S.printed, k, "no summary for gold that is not taxed")
+end
+
+do -- the same from the classic-style events when the interaction enum lacks them
+    local ns = fresh({ noWindowEnum = true })
+    ns.HandleCommand("chat")
+    local n = #S.printed
+    S.fire("MERCHANT_SHOW"); gain(20); gain(20)
+    eq(#S.printed, n, "held while the vendor window is open (event fallback)")
+    S.fire("MERCHANT_CLOSED")
+    truthy(printedAny("+40c received, tax 4c"), "summary at close (event fallback)")
+    n = #S.printed
+    S.fire("MAIL_SHOW"); gain(5 * GOLD)
+    eq(#S.printed, n, "held while the mailbox is open")
+    S.fire("MAIL_CLOSED")
+    truthy(printedAny("+5g received, tax 50s"), "mailbox summary at close")
+end
+
+do -- safety net if a close event never arrives
+    local ns = fresh()
+    ns.HandleCommand("chat")
+    S.fire("MERCHANT_SHOW"); gain(10)
+    local n = #S.printed
+    advance(30)
+    eq(#S.printed, n, "still held at 30 seconds")
+    advance(35)
+    truthy(printedAny("+10c received, tax 1c"), "safety net prints after a minute")
+    S.fire("MERCHANT_CLOSED")
+    local count = 0
+    for _, line in ipairs(S.printed) do if line:find("+10c received", 1, true) then count = count + 1 end end
+    eq(count, 1, "safety-net summary is not repeated at close")
+end
+
+do -- a missed close event is corrected by Blizzard's own frame
+    local ns = fresh()
+    ns.HandleCommand("chat")
+    S.fire("MERCHANT_SHOW")
+    _G.MerchantFrame = { IsShown = function() return false end }
+    local n = #S.printed
+    gain(20)
+    eq(#S.printed, n + 1, "reported straight away when the vendor frame is really closed")
+    truthy(printedAny("+20c received, tax 2c"), "text is right")
+end
+
+do -- turning chat off while a vendor summary is pending drops it
+    local ns = fresh()
+    ns.HandleCommand("chat")
+    S.fire("MERCHANT_SHOW"); gain(30)
+    ns.HandleCommand("chat")
+    local n = #S.printed
+    S.fire("MERCHANT_CLOSED")
+    eq(#S.printed, n, "nothing printed once chat is off")
 end
 
 do -- a partial deposit keeps the collected figure
