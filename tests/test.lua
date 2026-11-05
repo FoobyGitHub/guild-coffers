@@ -343,6 +343,31 @@ do -- the on-screen counter shows what to keep aside
     eq(printedAny("interface failed"), false, "no interface errors reported")
 end
 
+do -- tiny loot: tracked, shown as "<1c" rather than "0c", and fractions build up
+    local ns = fresh()
+    gain(2); gain(3); gain(3)                          -- 8 copper at 10% = 0.8 copper
+    truthy(ns.hud.line1._text:find("<1c", 1, true), "counter shows <1c for a fraction of a copper")
+    truthy(ns.hud.line2._text:find("8c collected at 10%", 1, true), "collected shows the loot was tracked")
+    S.fire("GUILDBANKFRAME_OPENED"); advance(0.6)
+    eq(#S.deposits, 0, "a fraction of a copper is not deposited")
+    truthy(printedAny("less than 1 copper") == false, "no message unless asked")
+    ns.HandleCommand("deposit")
+    truthy(printedAny("less than 1 copper owed"), "manual deposit explains the fraction")
+    S.fire("GUILDBANKFRAME_CLOSED"); advance(2)        -- leave the bank, then earn more
+    for _ = 1, 3 do gain(5) end                        -- another 15 copper: total owed 2.3
+    S.fire("GUILDBANKFRAME_OPENED"); advance(0.6)
+    eq(S.deposits[1], 2, "whole coppers are deposited once enough has built up")
+end
+
+do -- the window is filled in the first time it opens, not only on later opens
+    local ns = fresh()
+    gain(100 * GOLD)
+    ns.HandleCommand("window")
+    local p = ns.panels[#ns.panels]
+    truthy(p and p.owed._text and p.owed._text:find("Keep aside now: 10g", 1, true), "status filled on first open")
+    truthy(p.collected._text:find("100g", 1, true), "collected filled on first open")
+end
+
 do -- a partial deposit keeps the collected figure
     local ns = fresh()
     gain(100 * GOLD)

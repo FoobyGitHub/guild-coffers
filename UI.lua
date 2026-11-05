@@ -7,6 +7,7 @@
 local _, ns = ...
 
 local panels = {}   -- every built settings panel, so one refresh updates them all
+ns.panels = panels
 local category, legacyPanel, window, hud
 local reported = {}
 
@@ -42,7 +43,7 @@ local function RefreshHUD()
     end
     local c = ns.Char()
     if ns.db.enabled then
-        hud.line1:SetText("Guild tax to keep: |cffffd100" .. ns.CoinText(c.owed) .. "|r")
+        hud.line1:SetText("Guild tax to keep: |cffffd100" .. ns.OwedText(c.owed) .. "|r")
         hud.line2:SetText(ns.CoinText(c.collected or 0) .. " collected at " .. ns.db.rate .. "%")
     else
         hud.line1:SetText("Guild tax: tracking off")
@@ -63,7 +64,7 @@ local function RefreshPanel(p)
     Safe("counter box", function() p.showHud:SetChecked(ns.db.showHud and true or false) end)
     Safe("lock box", function() p.lock:SetChecked(ns.db.hudLocked and true or false) end)
     Safe("status text", function()
-        p.owed:SetText("Keep aside now: " .. ns.CoinText(c.owed))
+        p.owed:SetText("Keep aside now: " .. ns.OwedText(c.owed))
         p.collected:SetText("Collected since last deposit: " .. ns.CoinText(c.collected or 0))
         p.donated:SetText("Total donated: " .. ns.CoinText(c.donated))
         local last = "never"

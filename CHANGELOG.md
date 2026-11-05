@@ -12,6 +12,8 @@ All notable changes to Guild Coffers are recorded here.
 - Settings panel in the game's AddOns settings (opened with `/coffers`), with fallbacks for older settings menus and a standalone window (`/coffers window`).
 - On-screen tax counter showing how much gold to keep aside and how much has been collected since the last deposit. Drag to move, lock it in settings, right-click to open settings, `/coffers hud` to show or hide it.
 - Tracking is on and the rate is 10% by default.
+- Amounts under one copper are shown as "<1c" instead of "0c", and the counter shows what has been collected, so tiny early loot is visibly tracked. Fractions build up until a whole copper can be deposited.
+- Fixed: the first time the window opened its status lines and tick box were blank.
 - Each interface part is built separately, so one failing piece is reported once and the rest keep working.
 - `/coffers status`, `/coffers on|off`, `/coffers deposit` and `/coffers debug` (compatibility report for bug reports).
 - The guild bank is detected both from game events and by hooking Blizzard's guild bank frame, so the automatic deposit still fires if this client opens the bank differently.

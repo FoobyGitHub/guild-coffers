@@ -37,6 +37,13 @@ function ns.CoinText(copper)
     return table.concat(parts, " ")
 end
 
+-- Amounts owed can be a fraction of a copper; show that as "<1c" rather than "0c".
+function ns.OwedText(copper)
+    copper = tonumber(copper) or 0
+    if copper > 0 and copper < 1 then return "<1c" end
+    return ns.CoinText(copper)
+end
+
 -- Register an event. Unknown events on this client are recorded, not fatal.
 function ns.On(event, fn)
     local list = ns.handlers[event]
@@ -115,7 +122,7 @@ local function PrintStatus()
     local c = ns.Char()
     ns.Print(string.format("tax %d%% (%s). Collected since last deposit: %s. Keep aside: %s. Total donated: %s.",
         ns.db.rate, ns.db.enabled and "on" or "off",
-        ns.CoinText(c.collected or 0), ns.CoinText(c.owed), ns.CoinText(c.donated)))
+        ns.CoinText(c.collected or 0), ns.OwedText(c.owed), ns.CoinText(c.donated)))
     if c.lastDonated and date then
         ns.Print("Last donation: " .. date("%Y-%m-%d %H:%M", c.lastDonated))
     end

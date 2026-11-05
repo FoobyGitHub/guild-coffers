@@ -87,7 +87,13 @@ function ns.TryDeposit(manual)
     if ns.isSecret(money) then return end
     local amount = math.floor(math.min(c.owed, money))
     if amount < 1 then
-        if manual then ns.Print("nothing owed right now.") end
+        if manual then
+            if c.owed > 0 then
+                ns.Print("less than 1 copper owed so far. It builds up as you earn more.")
+            else
+                ns.Print("nothing owed right now.")
+            end
+        end
         return
     end
     if not DepositGuildBankMoney then
