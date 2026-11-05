@@ -21,8 +21,7 @@ Open them with `/coffers`, or ESC → Options → AddOns → Guild Coffers.
 | Track gold and tax it | On |
 | Tax rate | 10% (change with -5, -, +, +5) |
 | Always keep (minimum gold) | None (buttons, or `/coffers reserve 100g`) |
-| Share my donations (guild bank only) | On |
-| Deposit to | Guild bank (or "my own bank") |
+| Deposit to | The guild bank (or "My own bank") |
 | Show the tax counter on screen | On |
 | Lock the counter's position | Off |
 | Show tax in chat | Off |
@@ -30,7 +29,7 @@ Open them with `/coffers`, or ESC → Options → AddOns → Guild Coffers.
 - **Always keep:** a deposit never leaves you with less than this. Enter an exact amount in gold, silver or copper, e.g. `/coffers reserve 5g 50s`.
 - **Reset amount owed:** sets what you owe back to zero (click twice to confirm). Your lifetime donated total is kept.
 - **Own bank:** for players without a guild, or who prefer to save. Tax is deposited into your own bank (the Warband bank) when you open it. It is kept out of the guild leaderboard and nothing is shared while this is on. `/coffers dest guild` or `/coffers dest bank` also switch it.
-- **Sharing:** sends only your tax rate, total donated, number of deposits and last donation date to your guild, over the addon channel. Turn it off to keep them private; you can still see the leaderboard.
+- **Leaderboard sharing:** when depositing to the guild bank, your tax rate, total donated, number of deposits and last donation date are sent to your guild over the addon channel, so officers can see who contributes. You are told this once when you first log in. Choose "My own bank" to keep everything private.
 - **Counter:** shows how much to keep aside and the gold collected since your last deposit. Drag it to move it, right-click to open settings.
 - **Chat:** reports your tax after each gain. At a vendor or mailbox it waits and gives one summary when you close the window.
 
@@ -45,7 +44,7 @@ Open them with `/coffers`, or ESC → Options → AddOns → Guild Coffers.
 | `/coffers dest guild` / `bank` | Deposit to the guild bank (default) or your own bank |
 | `/coffers log` | At the guild bank: report what its money log holds (for bug reports) |
 | `/coffers board` | Open the guild leaderboard |
-| `/coffers share` | Share your donations with the guild on or off |
+| `/coffers defaults` | Put every setting back to its default (guild bank, 10%) |
 | `/coffers on` / `off` | Turn tracking on or off |
 | `/coffers hud` | Show or hide the counter |
 | `/coffers chat` | Show or hide the chat summary |

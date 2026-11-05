@@ -167,6 +167,7 @@ local function fresh(opts)
         assert(loadfile(file))("GuildCoffers", ns)
     end
     S.fire("ADDON_LOADED", "GuildCoffers")
+    if not S.showNotice then ns.db.sharingNoticeShown = true end   -- only the notice test wants it
     S.money = 50 * 10000
     S.fire("PLAYER_LOGIN")
     S.ns = ns
@@ -688,12 +689,12 @@ do -- announcing ourselves after login
     eq(S.sent[2].msg, "H|1", "hello asks who else uses the addon")
 end
 
-do -- sharing can be switched off, and nothing is sent outside a guild
-    local ns = fresh()
-    ns.HandleCommand("share")
-    eq(ns.db.share, false, "share toggled off")
+do -- the player is told once that guild-bank mode shares with the guild; nothing sent outside a guild
+    local ns = fresh({ showNotice = true })
     advance(16)
-    eq(#S.sent, 0, "nothing sent while sharing is off")
+    truthy(printedAny("shown to guildmates on the leaderboard"), "sharing notice shown at first login")
+    eq(ns.db.sharingNoticeShown, true, "notice remembered so it is shown only once")
+    eq(ns.db.share, nil, "there is no separate share setting")
     local ns2 = fresh({ inGuild = false })
     advance(16)
     eq(#S.sent, 0, "nothing sent when not in a guild")
@@ -797,10 +798,8 @@ do -- the custom-amount tooltip and the new panel controls
     local joined = table.concat(lines, "\n")
     truthy(joined:find("/coffers reserve", 1, true), "tooltip tells players how to type an exact amount")
     truthy(joined:find("silver", 1, true), "tooltip explains g, s and c")
-    truthy(p.boardBtn and p.share, "leaderboard button and share box exist")
-    ns.db.share = false
-    ns.RefreshUI()
-    p.share.scripts.OnClick(p.share)
+    truthy(p.boardBtn, "leaderboard button exists")
+    eq(p.share, nil, "no separate share box: sharing follows the guild-bank choice")
     _G.GameTooltip = nil
 end
 
@@ -870,21 +869,6 @@ do -- /coffers log
     S.fire("GUILDBANKFRAME_CLOSED")
 end
 
-do -- sharing and own-bank deposits cannot both be on
-    local ns = fresh()
-    ns.HandleCommand("window")
-    local p = ns.panels[#ns.panels]
-    eq(p.share._checked, true, "sharing ticked by default")
-    eq(p.share._disabled, false, "sharing available by default")
-    ns.HandleCommand("dest bank")
-    eq(p.share._checked, false, "sharing shows unticked in own-bank mode")
-    eq(p.share._disabled, true, "sharing is greyed out in own-bank mode")
-    eq(ns.db.share, true, "the stored sharing choice is kept")
-    ns.HandleCommand("dest guild")
-    eq(p.share._checked, true, "sharing returns when switched back")
-    eq(p.share._disabled, false, "sharing is available again")
-end
-
 do -- opening the guild bank while set to own bank gives a reminder, not silence
     local ns = fresh()
     ns.HandleCommand("dest bank")
@@ -932,7 +916,6 @@ do -- destination: a dropdown with both choices, one selected
     eq(ns.db.dest, "guild", "choosing the guild bank again, in one step")
     ns.HandleCommand("dest bank")
     eq(menuItems(p.destDropdown)[2].isSel(), true, "the command is reflected in the dropdown")
-    eq(p.share._disabled, true, "sharing greyed out in own-bank mode")
 end
 
 do -- if the dropdown cannot be built, linked options are used instead
@@ -947,6 +930,22 @@ do -- if the dropdown cannot be built, linked options are used instead
     p.destGuild.scripts.OnClick(p.destGuild)
     eq(ns.db.dest, "guild", "fallback: one click switches back")
     eq(printedAny("interface failed"), false, "falling back is not an error")
+end
+
+do -- defaults: guild bank and 10%, and /coffers defaults puts them back
+    local ns = fresh()
+    eq(ns.db.dest, "guild", "guild bank is the default destination")
+    eq(ns.db.rate, 10, "10% is the default rate")
+    eq(ns.db.enabled, true, "tracking on by default")
+    ns.HandleCommand("dest bank")
+    ns.HandleCommand("rate 25")
+    ns.HandleCommand("reserve 50g")
+    ns.Char().donated = 7 * GOLD
+    ns.HandleCommand("defaults")
+    eq(ns.db.dest, "guild", "defaults: back to the guild bank")
+    eq(ns.db.rate, 10, "defaults: back to 10%")
+    eq(ns.db.reserve, 0, "defaults: no reserve")
+    eq(ns.Char().donated, 7 * GOLD, "defaults keep your tax records")
 end
 
 real_print(string.format("%d checks passed, %d failed", passed, failures))

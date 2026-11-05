@@ -48,7 +48,7 @@ end
 -- Tell the guild our rate and totals (if the player allows it).
 function ns.ShareNow()
     -- Saving to your own bank is private: nothing is announced to the guild.
-    if not ns.db or not ns.db.share or ns.db.dest == "bank" then return end
+    if not ns.db or ns.db.dest == "bank" then return end
     local c = ns.Char()
     lastSent = now()
     Send(string.format("%d|%d|%d|%d|%d", PROTOCOL, ns.db.rate or 0,
@@ -57,7 +57,7 @@ end
 
 -- Share soon, but never more often than MIN_GAP, so changes are batched.
 function ns.ScheduleShare()
-    if sharePending or not ns.db or not ns.db.share or ns.db.dest == "bank" then return end
+    if sharePending or not ns.db or ns.db.dest == "bank" then return end
     sharePending = true
     local wait = math.max(5, lastSent + MIN_GAP - now())
     C_Timer.After(wait, function()
@@ -98,7 +98,7 @@ local function OnAddonMessage(_, prefix, text, channel, sender)
     if kind == "H" then
         -- Someone just logged in and wants to know who is using the addon. Answer after a
         -- random pause so a whole guild does not reply in the same second.
-        if ns.db.share and now() - lastSent > 10 then
+        if ns.db.dest ~= "bank" and now() - lastSent > 10 then
             C_Timer.After(2 + (math.random and math.random() or 0.5) * 8, function() ns.ShareNow() end)
         end
         return
@@ -252,7 +252,13 @@ ns.On("PLAYER_LOGIN", function()
     local reg = (C_ChatInfo and C_ChatInfo.RegisterAddonMessagePrefix) or RegisterAddonMessagePrefix
     if reg then pcall(reg, PREFIX) end
     C_Timer.After(LOGIN_DELAY, function()
-        if ns.db and ns.db.share and ns.db.dest ~= "bank" then
+        if ns.db and ns.db.dest ~= "bank" and IsInGuild and IsInGuild() then
+            -- Tell the player once that guild-bank mode shares their totals with the guild.
+            if not ns.db.sharingNoticeShown then
+                ns.db.sharingNoticeShown = true
+                ns.Print("your tax rate and guild donations are shown to guildmates on the leaderboard. "
+                    .. "To keep them private, choose \"My own bank\" in the settings (/coffers).")
+            end
             ns.ShareNow()
             Send("H|" .. PROTOCOL)   -- ask who else is using the addon
         end

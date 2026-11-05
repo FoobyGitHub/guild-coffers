@@ -8,7 +8,7 @@ ns.frame = CreateFrame("Frame")
 -- Forever inherits retail's "secret value" restrictions; guard where it exists.
 ns.isSecret = issecretvalue or function() return false end
 
-local DEFAULTS = { rate = 10, enabled = true, showHud = true, hudLocked = false, showChat = false, reserve = 0, share = true, dest = "guild" }
+local DEFAULTS = { rate = 10, enabled = true, showHud = true, hudLocked = false, showChat = false, reserve = 0, dest = "guild" }
 
 ---------------------------------------------------------------------------
 -- Helpers
@@ -120,8 +120,17 @@ ns.On("ADDON_LOADED", function(_, loaded)
         if db[k] == nil then db[k] = v end
     end
     db.chars = db.chars or {}
+    db.share = nil   -- old setting: sharing now simply follows the guild-bank choice
     ns.db = db
 end)
+
+-- Put every setting back to its default. Tax records and the counter's position are kept.
+function ns.ResetSettings()
+    for k, v in pairs(DEFAULTS) do ns.db[k] = v end
+    ns.Print("settings back to defaults: guild bank, " .. ns.db.rate .. "% tax, tracking on.")
+    if ns.ScheduleShare then ns.ScheduleShare() end
+    if ns.RefreshUI then ns.RefreshUI() end
+end
 
 -- Character key: Forever names can be "first last", so keep the whole name.
 function ns.CharKey()
@@ -205,7 +214,7 @@ local function PrintHelp()
     print("  /coffers dest guild | bank - deposit to the guild bank (default) or your own bank")
     print("  /coffers log - at the guild bank: report what its money log holds (for bug reports)")
     print("  /coffers board - open the guild leaderboard")
-    print("  /coffers share - share your donations with the guild on or off")
+    print("  /coffers defaults - put every setting back to its default (guild bank, 10%)")
     print("  /coffers on | off - turn tracking on or off")
     print("  /coffers status - show what you owe and have donated")
     print("  /coffers deposit - deposit now (guild bank must be open)")
@@ -269,11 +278,8 @@ function ns.HandleCommand(input)
         end
     elseif cmd == "board" or cmd == "top" or cmd == "leaderboard" then
         if ns.ToggleBoard then ns.ToggleBoard() end
-    elseif cmd == "share" then
-        ns.db.share = not ns.db.share
-        ns.Print("sharing your donations with the guild " .. (ns.db.share and "on." or "off."))
-        if ns.db.share and ns.ScheduleShare then ns.ScheduleShare() end
-        if ns.RefreshUI then ns.RefreshUI() end
+    elseif cmd == "defaults" then
+        ns.ResetSettings()
     elseif cmd == "dest" then
         local want = rest:lower()
         if want == "guild" then ns.db.dest = "guild"

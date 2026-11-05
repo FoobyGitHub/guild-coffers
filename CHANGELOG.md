@@ -5,13 +5,14 @@ All notable changes to Guild Coffers are recorded here.
 ## [Unreleased] (alpha)
 
 ### Added
-- The deposit destination is now a dropdown ("The guild bank" / "My own bank (private)"), so exactly one is selected and switching back is one step. If a client cannot build the dropdown, two linked options are shown instead. "Share my donations" sits below it.
+- The deposit destination is now a dropdown ("The guild bank" / "My own bank (private)"), so exactly one is selected and switching back is one step. If a client cannot build the dropdown, two linked options are shown instead.
 - Opening the guild bank while set to your own bank now prints a reminder instead of doing nothing.
-- Fixed: "Share my donations" and "Deposit to my own bank" could both look ticked. In own-bank mode the share box is now greyed out and unticked, and your choice returns when you switch back to the guild bank.
+- Sharing with the guild is no longer a separate option: it follows the deposit choice. Depositing to the guild bank (the default) shares your rate and donations for the leaderboard, and you are told so once at first login. "My own bank" keeps everything private.
+- `/coffers defaults` puts every setting back to its default (guild bank, 10% tax, tracking on). Your tax records are kept.
 - Choose where tax is deposited: the guild bank (default) or your own bank (the Warband bank), with a tick box or `/coffers dest guild|bank`. Own-bank savings are tracked separately, are not guild donations, and nothing is shared with the guild while it is on.
 - `/coffers log`: at the guild bank, reports how many entries its money log holds and of what kind, so the history feature can be designed around real data.
 - Fixed: the leaderboard opened behind the Options window when started from the settings panel. It now opens on top.
-- Guild leaderboard (`/coffers board` or the Leaderboard button): guildmates running the addon share their rate and donation totals over the guild addon channel, and the guild bank money log is read to mark players whose deposits it shows as Verified. Totals without a matching log entry are shown as Unverified. Sharing can be turned off (`/coffers share`).
+- Guild leaderboard (`/coffers board` or the Leaderboard button): guildmates running the addon share their rate and donation totals over the guild addon channel, and the guild bank money log is read to mark players whose deposits it shows as Verified. Totals without a matching log entry are shown as Unverified. Choosing "My own bank" keeps your totals private.
 - Hover help on "Always keep" explains how to type an exact amount.
 - "Always keep" minimum: a deposit never takes you below an amount you choose (gold, silver or copper), set with buttons or `/coffers reserve 5g 50s`. Anything held back stays owed. Off by default.
 - "Reset amount owed" button (two clicks to confirm) and `/coffers reset`; lifetime donated is kept.

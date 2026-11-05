@@ -78,18 +78,6 @@ end
 local function RefreshPanel(p)
     local c = ns.Char()
     Safe("rate text", function() p.rateText:SetText(ns.db.rate .. "%") end)
-    Safe("share box", function()
-        -- Saving to your own bank is private, so sharing cannot apply: grey it out.
-        local own = ns.db.dest == "bank"
-        p.share:SetChecked((ns.db.share and not own) and true or false)
-        if own then
-            p.share:Disable()
-            p.share.label:SetTextColor(0.5, 0.5, 0.5)
-        else
-            p.share:Enable()
-            p.share.label:SetTextColor(1, 1, 1)
-        end
-    end)
     Safe("destination", function()
         local own = ns.db.dest == "bank"
         if p.destDropdown and p.destDropdown.GenerateMenu then p.destDropdown:GenerateMenu() end
@@ -168,13 +156,12 @@ local function BuildPanel(parent)
         if dest == "guild" and ns.ScheduleShare then ns.ScheduleShare() end
         ns.RefreshUI()
     end
-    local GUILD_TIP = "Your tax is deposited into the guild bank when you open it, and counts as a guild "
-        .. "donation on the leaderboard."
+    local GUILD_TIP = "The default. Your tax is deposited into the guild bank when you open it. Your rate and "
+        .. "donations appear on the guild leaderboard, so officers can see who contributes."
     local BANK_TIP = "Your tax is saved into your own bank (the Warband bank) when you open it, for players "
         .. "without a guild or who prefer to save it. It is private: not a guild donation, and nothing is "
         .. "shared. Also: /coffers dest guild or bank."
     Label(p, "GameFontNormalSmall", "TOPLEFT", 292, -68, "Deposit to")
-    local shareY
     local builtDropdown = pcall(function()
         local dd = CreateFrame("DropdownButton", nil, p, "WowStyle1DropdownTemplate")
         if not dd.SetupMenu then
@@ -203,22 +190,12 @@ local function BuildPanel(parent)
         end)
         p.destDropdown = dd
     end)
-    if builtDropdown then
-        shareY = -118
-    else
+    if not builtDropdown then
         p.destGuild = Check(p, -84, "Deposit to the guild bank", function() SetDest("guild") end, 290)
         Tip(p.destGuild, "Deposit to the guild bank", GUILD_TIP)
         p.destBank = Check(p, -112, "Deposit to my own bank", function() SetDest("bank") end, 290)
         Tip(p.destBank, "Deposit to my own bank", BANK_TIP)
-        shareY = -140
     end
-
-    p.share = Check(p, shareY, "Share my donations", function(v)
-        ns.db.share = v
-        if v and ns.ScheduleShare then ns.ScheduleShare() end
-    end, 290)
-    Tip(p.share, "Share my donations", "Lets guildmates see your rate and what you have donated on the leaderboard. "
-        .. "Only applies when depositing to the guild bank.")
 
     -- The rate is shown as plain text (like the status lines below) and changed with
     -- buttons or /coffers rate <0-100>, rather than with a typed-in box.
