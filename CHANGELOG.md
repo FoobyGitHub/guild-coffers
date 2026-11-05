@@ -2,7 +2,7 @@
 
 All notable changes to Guild Coffers are recorded here.
 
-## [Unreleased]
+## [Unreleased] (alpha)
 
 ### Added
 - Gold tracking: your tax percentage of gold received (loot, quests, vendor sales, mail) is set aside. Gold from trades and from bank or guild bank withdrawals is not counted.
