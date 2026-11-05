@@ -5,7 +5,7 @@ All notable changes to Guild Coffers are recorded here.
 ## [Unreleased] (alpha)
 
 ### Added
-- Fixed: the leaderboard showed you twice when the guild bank log used your full name ("Leeroy Mcbiff") and the game gave only your first name. First-name and full-name versions of a player are now one row, shown with the full name. `/coffers debug` lists the name lookups.
+- Fixed: the leaderboard showed you twice when the guild bank log used your full name ("Leeroy Mcbiff") and the game gave only your first name. Full names now come from the guild roster, where your own entry is found by your character ID (GUID), so this works for every player. Each addon user also sends their full name with their totals (checked against the name the game gives for them, so nobody can claim another player's name). Guildmates sharing a first name stay separate. `/coffers debug` shows the full name found.
 - The deposit destination is now a dropdown ("The guild bank" / "My own bank (private)"), so exactly one is selected and switching back is one step. If a client cannot build the dropdown, two linked options are shown instead.
 - Opening the guild bank while set to your own bank now prints a reminder instead of doing nothing.
 - Sharing with the guild is no longer a separate option: it follows the deposit choice. Depositing to the guild bank (the default) shares your rate and donations for the leaderboard. "My own bank" keeps everything private.

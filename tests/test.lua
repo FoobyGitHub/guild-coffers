@@ -133,6 +133,13 @@ local function installGlobals()
         S.ownDeposits[#S.ownDeposits + 1] = { bankType = bankType, amount = amount }
         if S.ownDepositWorks ~= false then S.money = S.money - amount; S.fire("PLAYER_MONEY") end
     end }
+    _G.UnitGUID = function() return S.myGuid or "Player-1-0001" end
+    _G.GetNumGuildMembers = function() return S.roster and #S.roster or 0 end
+    _G.GetGuildRosterInfo = function(i)
+        local m = S.roster[i]
+        return m[1], "Member", 1, 10, "Paladin", "Elwynn", "", "", true, 0, "PALADIN", 0, 0, false, false, 4, m[2]
+    end
+    _G.C_GuildInfo = { GuildRoster = function() S.rosterRequested = true end }
     _G.QueryGuildBankLog = function(tab) S.logQuery = tab end
     _G.GetNumGuildBankMoneyTransactions = function() return #S.bankLog end
     _G.GetGuildBankMoneyTransaction = function(i) return (unpack or table.unpack)(S.bankLog[i]) end
@@ -683,7 +690,7 @@ do -- announcing ourselves after login
     eq(#S.sent, 0, "nothing sent straight at login")
     advance(16)
     eq(#S.sent, 2, "state and hello sent after the login delay")
-    eq(S.sent[1].msg, "1|10|0|0|0", "state message carries rate and totals")
+    eq(S.sent[1].msg, "1|10|0|0|0|", "state message carries rate and totals (full name unknown: blank)")
     eq(S.sent[1].channel, "GUILD", "sent to the guild channel")
     eq(S.sent[2].msg, "H|1", "hello asks who else uses the addon")
 end
@@ -968,6 +975,46 @@ do -- names that only share a first name stay separate when both are full names
     eq(ns.SameName("Leeroy", "Leeroy Mcbiff-Realm"), true, "first name matches full name")
     eq(ns.SameName("Leeroy Jenkins", "Leeroy Mcbiff"), false, "different surnames do not match")
     eq(ns.SameName("Lee", "Leeroy"), false, "partial words do not match")
+end
+
+do -- full names come from the guild roster, found by GUID, so it works for every player
+    local ns = fresh({ unitName = "Leeroy", roster = {
+        { "Leeroy Mcbiff-Realm", "Player-1-0001" },     -- you
+        { "Leeroy Jenkins-Realm", "Player-1-0002" },    -- someone else with your first name
+        { "Bob Smith-Realm", "Player-1-0003" },
+    } })
+    advance(4)
+    eq(S.rosterRequested, true, "roster requested after login")
+    eq(ns.Char().fullName, "Leeroy Mcbiff", "your full name found by GUID, not by name")
+    ns.Char().donated = 202
+    S.bankLog = {
+        { "deposit", "Leeroy Mcbiff", 202, 0, 0, 0, 0 },
+        { "deposit", "Leeroy Jenkins", 500, 0, 0, 0, 0 },
+    }
+    S.fire("GUILDBANKLOG_UPDATE")
+    local me, other = rowFor(ns, "Leeroy Mcbiff"), rowFor(ns, "Leeroy Jenkins")
+    truthy(me and me.me and me.verified, "you: one row, full name, verified")
+    truthy(other and not other.me, "a guildmate with the same first name stays separate")
+    eq(#ns.BoardRows(), 2, "two people, two rows")
+    advance(16)
+    truthy(S.sent[1].msg:find("|Leeroy Mcbiff$"), "your full name is sent with your totals")
+
+    receive("Bob-Realm", "1|10|300|1|1700000000|")
+    truthy(rowFor(ns, "Bob Smith"), "a first-name-only sender is named from the roster")
+    receive("Bob-Realm", "1|10|300|1|1700000000|Leeroy Mcbiff")
+    eq(rowFor(ns, "Leeroy Mcbiff").donated, 202, "nobody can claim someone else's full name")
+    receive("Leeroy Mcbiff-Realm", "1|10|202|1|1700000000|Leeroy Mcbiff")
+    eq(#ns.BoardRows(), 3, "your own message coming back adds no row")
+end
+
+do -- with no roster (no guild), first-name matching is the fallback
+    local ns = fresh({ unitName = "Leeroy" })
+    receive("Cara-Realm", "1|10|300|1|1700000000|Cara Jones")
+    truthy(rowFor(ns, "Cara Jones"), "full name sent by the player is used")
+    S.bankLog = { { "deposit", "Cara Jones", 300, 0, 0, 0, 0 } }
+    S.fire("GUILDBANKLOG_UPDATE")
+    eq(#ns.BoardRows(), 2, "her bank-log entry joins her row (you + Cara)")
+    eq(rowFor(ns, "Cara Jones").verified, true, "and verifies it")
 end
 
 do -- debug shows the name lookups

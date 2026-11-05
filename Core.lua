@@ -253,6 +253,9 @@ local function PrintDebug()
             for i = 2, #r do t[#t + 1] = ns.isSecret(r[i]) and "<secret>" or tostring(r[i]) end
             return table.concat(t, ", ")
         end
+        local full = ns.db and ns.Char().fullName
+        print("  Your full name (guild roster): " .. (full or "not found yet")
+            .. ", roster members read: " .. tostring(ns.roster and #ns.roster or 0))
         print("  Names: UnitName = " .. all(UnitName, "player") .. "; GetUnitName = " .. all(GetUnitName, "player", true)
             .. "; UnitFullName = " .. all(UnitFullName, "player"))
     end)

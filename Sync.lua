@@ -40,13 +40,66 @@ function ns.SameName(a, b)
     return b:sub(1, #a + 1) == a .. " " or a:sub(1, #b + 1) == b .. " "
 end
 
--- Every name the game gives for the player, longest (most complete) first.
+---------------------------------------------------------------------------
+-- Full names. The guild roster is the source: it lists every member's full name, and the
+-- player's own entry is found by their unique character ID (GUID), not by name.
+---------------------------------------------------------------------------
+
+local roster = {}   -- full names of guild members (realm removed)
+ns.roster = roster
+
+local function pack(...) return { n = select("#", ...), ... } end
+
+function ns.ScanRoster()
+    if not (GetNumGuildMembers and GetGuildRosterInfo) or not ns.db then return end
+    local okN, n = pcall(GetNumGuildMembers)
+    if not okN or not ok(n) or type(n) ~= "number" then return end
+    local myGuid = UnitGUID and UnitGUID("player")
+    if not ok(myGuid) then myGuid = nil end
+    for i = #roster, 1, -1 do roster[i] = nil end
+    for i = 1, n do
+        local r = pack(pcall(GetGuildRosterInfo, i))
+        if r[1] and ok(r[2]) and type(r[2]) == "string" and r[2] ~= "" then
+            local full = Short(r[2])
+            roster[#roster + 1] = full
+            if myGuid then
+                for j = 3, r.n do
+                    if ok(r[j]) and r[j] == myGuid then
+                        ns.Char().fullName = full
+                        break
+                    end
+                end
+            end
+        end
+    end
+    if ns.RefreshBoard then ns.RefreshBoard() end
+end
+
+-- The full name for a name that may be first-name-only: an exact roster match, or the only
+-- roster member with that first name. If two members share it, the name is left as given.
+function ns.FullName(name)
+    name = Short(name)
+    local n = Norm(name)
+    local found
+    for _, full in ipairs(roster) do
+        local f = Norm(full)
+        if f == n then return full end
+        if f:sub(1, #n + 1) == n .. " " then
+            if found then return name end
+            found = full
+        end
+    end
+    return found or name
+end
+
+-- Every name the game gives for the player, most complete first.
 function ns.MyNames()
     local names = {}
+    if ns.db and ns.Char().fullName then names[1] = ns.Char().fullName end
     local function add(fn, ...)
         if not fn then return end
-        local ok, n = pcall(fn, ...)
-        if ok and type(n) == "string" and n ~= "" and not ns.isSecret(n) then names[#names + 1] = Short(n) end
+        local okC, n = pcall(fn, ...)
+        if okC and type(n) == "string" and n ~= "" and not ns.isSecret(n) then names[#names + 1] = Short(n) end
     end
     add(UnitName, "player")
     add(GetUnitName, "player", false)
@@ -54,7 +107,11 @@ function ns.MyNames()
     table.sort(names, function(x, y) return #x > #y end)
     return names
 end
+
 function ns.IsMe(name)
+    local full = ns.db and ns.Char().fullName
+    if full then return Norm(ns.FullName(name)) == Norm(full) end
+    -- No roster yet (or no guild): fall back to first-name matching.
     for _, n in ipairs(ns.MyNames()) do
         if ns.SameName(n, name) then return true end
     end
@@ -86,8 +143,9 @@ function ns.ShareNow()
     if not ns.db or ns.db.dest == "bank" then return end
     local c = ns.Char()
     lastSent = now()
-    Send(string.format("%d|%d|%d|%d|%d", PROTOCOL, ns.db.rate or 0,
-        math.floor(c.donated or 0), c.deposits or 0, c.lastDonated or 0))
+    local full = (c.fullName or ""):gsub("|", "")
+    Send(string.format("%d|%d|%d|%d|%d|%s", PROTOCOL, ns.db.rate or 0,
+        math.floor(c.donated or 0), c.deposits or 0, c.lastDonated or 0, full))
 end
 
 -- Share soon, but never more often than MIN_GAP, so changes are batched.
@@ -127,10 +185,11 @@ local function OnAddonMessage(_, prefix, text, channel, sender)
     if not ok(text) or not ok(sender) or not ns.db then return end
     text, sender = tostring(text), tostring(sender)
     local who = Short(sender)
-    if who == "" or ns.IsMe(who) then return end
+    if who == "" then return end
 
     local kind = text:match("^(%w+)|")
     if kind == "H" then
+        if ns.IsMe(who) then return end
         -- Someone just logged in and wants to know who is using the addon. Answer after a
         -- random pause so a whole guild does not reply in the same second.
         if ns.db.dest ~= "bank" and now() - lastSent > 10 then
@@ -140,15 +199,22 @@ local function OnAddonMessage(_, prefix, text, channel, sender)
     end
     if kind ~= tostring(PROTOCOL) then return end
 
-    local _, rate, donated, deposits, last = text:match("^(%w+)|(%d+)|(%d+)|(%d+)|(%d+)$")
+    local _, rate, donated, deposits, last, claimed = text:match("^(%w+)|(%d+)|(%d+)|(%d+)|(%d+)|?([^|]*)$")
     rate = Number(rate, 0, 100)
     donated = Number(donated, 0, 1e12)
     deposits = Number(deposits, 0, 1e7)
     last = Number(last, 0, 4e9)
     if not (rate and donated and deposits and last) then return end
 
+    -- The sender's full name: what they say it is, but only if it really is their name
+    -- (it must match the name the game gives for the sender), else the roster's version.
+    local name = ns.FullName(who)
+    if claimed and claimed ~= "" and #claimed <= 60 and ns.SameName(claimed, who) then name = claimed end
+    if ns.IsMe(name) then return end   -- our own message coming back
+
     local board = Board()
-    board[who] = { rate = rate, donated = donated, deposits = deposits, last = last, seen = time() }
+    board[who] = nil   -- an older entry stored under the short name
+    board[name] = { rate = rate, donated = donated, deposits = deposits, last = last, seen = time() }
     Prune(board)
     if ns.RefreshBoard then ns.RefreshBoard() end
 end
@@ -247,9 +313,14 @@ function ns.BoardRows()
     -- Rows are matched by name, allowing for first-name-only and full-name versions of the same
     -- player; the fullest version is shown.
     local rows = {}
+    local function same(a, b)
+        if #roster > 0 then return Norm(a) == Norm(b) end   -- full names known: exact match only
+        return ns.SameName(a, b)
+    end
     local function row(name)
+        name = ns.FullName(name)
         for _, r in ipairs(rows) do
-            if ns.SameName(r.name, name) then
+            if same(r.name, name) then
                 if #name > #r.name then r.name = name end
                 return r
             end
@@ -303,5 +374,14 @@ ns.On("PLAYER_LOGIN", function()
         end
     end)
 end)
+ns.On("PLAYER_LOGIN", function()
+    -- Ask the server for the guild roster (that is where full names come from).
+    C_Timer.After(3, function()
+        local req = (C_GuildInfo and C_GuildInfo.GuildRoster) or GuildRoster
+        if req and IsInGuild and IsInGuild() then pcall(req) end
+        ns.ScanRoster()
+    end)
+end)
+ns.On("GUILD_ROSTER_UPDATE", function() ns.ScanRoster() end)
 ns.On("CHAT_MSG_ADDON", OnAddonMessage)
 ns.On("GUILDBANKLOG_UPDATE", ns.ReadBankLog)
