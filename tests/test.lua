@@ -42,6 +42,10 @@ local function makeFrame(name)
         self.scripts[which] = fn
         if which == "OnEvent" then S.eventFrame = self end
     end
+    function f.SetChecked(self, v) rawset(self, "_checked", v and true or false) end
+    function f.GetChecked(self) return self._checked end
+    function f.Disable(self) rawset(self, "_disabled", true) end
+    function f.Enable(self) rawset(self, "_disabled", false) end
     function f.SetFrameStrata(self, strata) rawset(self, "_strata", strata) end
     function f.HookScript(self, which, fn) self.hooks[which] = fn end
     function f.SetText(self, t) rawset(self, "_text", t) end
@@ -860,6 +864,21 @@ do -- /coffers log
     truthy(printedAny("deposit 1"), "log probe reports entry types")
     truthy(printedAny("2 different players"), "log probe counts players")
     S.fire("GUILDBANKFRAME_CLOSED")
+end
+
+do -- sharing and own-bank deposits cannot both be on
+    local ns = fresh()
+    ns.HandleCommand("window")
+    local p = ns.panels[#ns.panels]
+    eq(p.share._checked, true, "sharing ticked by default")
+    eq(p.share._disabled, false, "sharing available by default")
+    ns.HandleCommand("dest bank")
+    eq(p.share._checked, false, "sharing shows unticked in own-bank mode")
+    eq(p.share._disabled, true, "sharing is greyed out in own-bank mode")
+    eq(ns.db.share, true, "the stored sharing choice is kept")
+    ns.HandleCommand("dest guild")
+    eq(p.share._checked, true, "sharing returns when switched back")
+    eq(p.share._disabled, false, "sharing is available again")
 end
 
 real_print(string.format("%d checks passed, %d failed", passed, failures))

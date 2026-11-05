@@ -78,7 +78,18 @@ end
 local function RefreshPanel(p)
     local c = ns.Char()
     Safe("rate text", function() p.rateText:SetText(ns.db.rate .. "%") end)
-    Safe("share box", function() p.share:SetChecked(ns.db.share and true or false) end)
+    Safe("share box", function()
+        -- Saving to your own bank is private, so sharing cannot apply: grey it out.
+        local own = ns.db.dest == "bank"
+        p.share:SetChecked((ns.db.share and not own) and true or false)
+        if own then
+            p.share:Disable()
+            p.share.label:SetTextColor(0.5, 0.5, 0.5)
+        else
+            p.share:Enable()
+            p.share.label:SetTextColor(1, 1, 1)
+        end
+    end)
     Safe("destination box", function() p.dest:SetChecked(ns.db.dest == "bank") end)
     Safe("chat box", function() p.chat:SetChecked(ns.db.showChat and true or false) end)
     Safe("tracking box", function() p.enabled:SetChecked(ns.db.enabled and true or false) end)
@@ -115,7 +126,7 @@ local function Check(parent, y, text, onClick, x)
     local cb = CreateFrame("CheckButton", nil, parent, "UICheckButtonTemplate")
     cb:SetPoint("TOPLEFT", x, y)
     cb:SetScript("OnClick", function(self) onClick(self:GetChecked() and true or false) end)
-    Label(parent, "GameFontHighlight", "TOPLEFT", x + 30, y - 7, text)
+    cb.label = Label(parent, "GameFontHighlight", "TOPLEFT", x + 30, y - 7, text)
     return cb
 end
 
@@ -147,6 +158,8 @@ local function BuildPanel(parent)
         ns.db.share = v
         if v and ns.ScheduleShare then ns.ScheduleShare() end
     end, 290)
+    Tip(p.share, "Share my donations", "Lets guildmates see your rate and what you have donated on the leaderboard. "
+        .. "Not available while you deposit to your own bank, because that is private.")
 
     p.dest = Check(p, -100, "Deposit to my own bank instead", function(v)
         ns.db.dest = v and "bank" or "guild"
