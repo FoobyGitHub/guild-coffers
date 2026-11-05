@@ -5,6 +5,8 @@ All notable changes to Guild Coffers are recorded here.
 ## [Unreleased] (alpha)
 
 ### Added
+- Choose where tax is deposited: the guild bank (default) or your own bank (the Warband bank), with a tick box or `/coffers dest guild|bank`. Own-bank savings are tracked separately, are not guild donations, and nothing is shared with the guild while it is on.
+- `/coffers log`: at the guild bank, reports how many entries its money log holds and of what kind, so the history feature can be designed around real data.
 - Fixed: the leaderboard opened behind the Options window when started from the settings panel. It now opens on top.
 - Guild leaderboard (`/coffers board` or the Leaderboard button): guildmates running the addon share their rate and donation totals over the guild addon channel, and the guild bank money log is read to mark players whose deposits it shows as Verified. Totals without a matching log entry are shown as Unverified. Sharing can be turned off (`/coffers share`).
 - Hover help on "Always keep" explains how to type an exact amount.

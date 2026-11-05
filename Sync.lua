@@ -47,7 +47,8 @@ end
 
 -- Tell the guild our rate and totals (if the player allows it).
 function ns.ShareNow()
-    if not ns.db or not ns.db.share then return end
+    -- Saving to your own bank is private: nothing is announced to the guild.
+    if not ns.db or not ns.db.share or ns.db.dest == "bank" then return end
     local c = ns.Char()
     lastSent = now()
     Send(string.format("%d|%d|%d|%d|%d", PROTOCOL, ns.db.rate or 0,
@@ -56,7 +57,7 @@ end
 
 -- Share soon, but never more often than MIN_GAP, so changes are batched.
 function ns.ScheduleShare()
-    if sharePending or not ns.db or not ns.db.share then return end
+    if sharePending or not ns.db or not ns.db.share or ns.db.dest == "bank" then return end
     sharePending = true
     local wait = math.max(5, lastSent + MIN_GAP - now())
     C_Timer.After(wait, function()
@@ -156,6 +157,42 @@ function ns.ReadBankLog()
     if ns.RefreshBoard then ns.RefreshBoard() end
 end
 
+-- /coffers log: report what the money log holds, so the history can be designed around facts.
+function ns.LogProbe()
+    if not (QueryGuildBankLog and GetNumGuildBankMoneyTransactions and GetGuildBankMoneyTransaction) then
+        ns.Print("this client has no guild bank log functions. Run /coffers debug and report it.")
+        return
+    end
+    if not (ns.IsGuildBankOpen and ns.IsGuildBankOpen()) then
+        ns.Print("open the guild bank first, then run /coffers log again.")
+        return
+    end
+    ns.Print("asking the guild bank for its money log...")
+    ns.QueryBankLog()
+    C_Timer.After(2.5, function()
+        local okN, n = pcall(GetNumGuildBankMoneyTransactions)
+        if not okN or not ok(n) then ns.Print("could not read the log.") return end
+        local kinds, names, nameCount = {}, {}, 0
+        local first, last
+        for i = 1, n do
+            local okT, kind, name, amount, y, m, d, h = pcall(GetGuildBankMoneyTransaction, i)
+            if okT and ok(kind) then
+                kinds[tostring(kind)] = (kinds[tostring(kind)] or 0) + 1
+                if ok(name) and not names[tostring(name)] then names[tostring(name)] = true; nameCount = nameCount + 1 end
+                local age = string.format("%sy %sm %sd %sh ago", tostring(y), tostring(m), tostring(d), tostring(h))
+                if i == 1 then first = age end
+                last = age
+            end
+        end
+        local parts = {}
+        for kind, count in pairs(kinds) do parts[#parts + 1] = kind .. " " .. count end
+        table.sort(parts)
+        ns.Print(string.format("money log: %d entries (%s), %d different players.", n,
+            #parts > 0 and table.concat(parts, ", ") or "none", nameCount))
+        if first then ns.Print("first entry listed: " .. first .. "; last entry listed: " .. last .. ".") end
+    end)
+end
+
 -- Called by the tracker when the guild bank opens and after our own deposit.
 function ns.OnGuildBankOpened()
     C_Timer.After(1, ns.QueryBankLog)
@@ -215,7 +252,7 @@ ns.On("PLAYER_LOGIN", function()
     local reg = (C_ChatInfo and C_ChatInfo.RegisterAddonMessagePrefix) or RegisterAddonMessagePrefix
     if reg then pcall(reg, PREFIX) end
     C_Timer.After(LOGIN_DELAY, function()
-        if ns.db and ns.db.share then
+        if ns.db and ns.db.share and ns.db.dest ~= "bank" then
             ns.ShareNow()
             Send("H|" .. PROTOCOL)   -- ask who else is using the addon
         end

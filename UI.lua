@@ -62,7 +62,8 @@ local function RefreshHUD()
     end
     local c = ns.Char()
     if ns.db.enabled then
-        hud.line1:SetText("Guild tax to keep: |cffffd100" .. ns.OwedText(c.owed) .. "|r")
+        hud.line1:SetText((ns.db.dest == "bank" and "Savings to keep: " or "Guild tax to keep: ")
+            .. "|cffffd100" .. ns.OwedText(c.owed) .. "|r")
         hud.line2:SetText(ns.CoinText(c.collected or 0) .. " collected at " .. ns.db.rate .. "%")
     else
         hud.line1:SetText("Guild tax: tracking off")
@@ -78,6 +79,7 @@ local function RefreshPanel(p)
     local c = ns.Char()
     Safe("rate text", function() p.rateText:SetText(ns.db.rate .. "%") end)
     Safe("share box", function() p.share:SetChecked(ns.db.share and true or false) end)
+    Safe("destination box", function() p.dest:SetChecked(ns.db.dest == "bank") end)
     Safe("chat box", function() p.chat:SetChecked(ns.db.showChat and true or false) end)
     Safe("tracking box", function() p.enabled:SetChecked(ns.db.enabled and true or false) end)
     Safe("counter box", function() p.showHud:SetChecked(ns.db.showHud and true or false) end)
@@ -86,7 +88,8 @@ local function RefreshPanel(p)
     Safe("status text", function()
         p.owed:SetText("Keep aside now: " .. ns.OwedText(c.owed))
         p.collected:SetText("Collected since last deposit: " .. ns.CoinText(c.collected or 0))
-        p.donated:SetText("Total donated: " .. ns.CoinText(c.donated))
+        p.donated:SetText("Total donated: " .. ns.CoinText(c.donated)
+            .. ((c.saved or 0) > 0 and ("  (saved to own bank: " .. ns.CoinText(c.saved) .. ")") or ""))
         local last = "never"
         if c.lastDonated and date then last = date("%Y-%m-%d %H:%M", c.lastDonated) end
         p.last:SetText("Last donation: " .. last)
@@ -144,6 +147,15 @@ local function BuildPanel(parent)
         ns.db.share = v
         if v and ns.ScheduleShare then ns.ScheduleShare() end
     end, 290)
+
+    p.dest = Check(p, -100, "Deposit to my own bank instead", function(v)
+        ns.db.dest = v and "bank" or "guild"
+        ns.RefreshUI()
+    end, 290)
+    Tip(p.dest, "Deposit destination", "By default your tax goes to the guild bank when you open it. Tick this to "
+        .. "put it into your own bank instead (the Warband bank) when you open that, for players without a guild "
+        .. "or who prefer to save it. Own-bank deposits are not counted as guild donations or shared. "
+        .. "Also: /coffers dest guild or bank.")
 
     -- The rate is shown as plain text (like the status lines below) and changed with
     -- buttons or /coffers rate <0-100>, rather than with a typed-in box.

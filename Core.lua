@@ -8,7 +8,7 @@ ns.frame = CreateFrame("Frame")
 -- Forever inherits retail's "secret value" restrictions; guard where it exists.
 ns.isSecret = issecretvalue or function() return false end
 
-local DEFAULTS = { rate = 10, enabled = true, showHud = true, hudLocked = false, showChat = false, reserve = 0, share = true }
+local DEFAULTS = { rate = 10, enabled = true, showHud = true, hudLocked = false, showChat = false, reserve = 0, share = true, dest = "guild" }
 
 ---------------------------------------------------------------------------
 -- Helpers
@@ -202,6 +202,8 @@ local function PrintHelp()
     print("  /coffers rate <0-100> - set your tax percentage")
     print("  /coffers reserve <amount> - gold to always keep, e.g. 100g or 5g 50s (0 = none)")
     print("  /coffers reset - set the amount owed back to zero")
+    print("  /coffers dest guild | bank - deposit to the guild bank (default) or your own bank")
+    print("  /coffers log - at the guild bank: report what its money log holds (for bug reports)")
     print("  /coffers board - open the guild leaderboard")
     print("  /coffers share - share your donations with the guild on or off")
     print("  /coffers on | off - turn tracking on or off")
@@ -231,6 +233,8 @@ local function PrintDebug()
     local unknown = {}
     for event in pairs(ns.unknownEvents or {}) do unknown[#unknown + 1] = event end
     table.sort(unknown)
+    print("  Own-bank deposit (C_Bank.DepositMoney): " .. yn(C_Bank and C_Bank.DepositMoney)
+        .. ", Enum.BankType.Account: " .. yn(Enum and Enum.BankType and Enum.BankType.Account))
     print("  Guild sharing: " .. yn((C_ChatInfo and C_ChatInfo.SendAddonMessage) or SendAddonMessage)
         .. ", IsInGuild: " .. yn(IsInGuild) .. ", bank log: " .. yn(QueryGuildBankLog and GetGuildBankMoneyTransaction))
     print("  Events this client rejected: " .. (#unknown > 0 and table.concat(unknown, ", ") or "none"))
@@ -270,6 +274,18 @@ function ns.HandleCommand(input)
         ns.Print("sharing your donations with the guild " .. (ns.db.share and "on." or "off."))
         if ns.db.share and ns.ScheduleShare then ns.ScheduleShare() end
         if ns.RefreshUI then ns.RefreshUI() end
+    elseif cmd == "dest" then
+        local want = rest:lower()
+        if want == "guild" then ns.db.dest = "guild"
+        elseif want == "bank" or want == "own" or want == "personal" then ns.db.dest = "bank"
+        else
+            ns.Print("usage: /coffers dest guild | bank. Now: " .. (ns.db.dest == "bank" and "your own bank" or "the guild bank"))
+            return
+        end
+        ns.Print("deposits now go to " .. (ns.db.dest == "bank" and "your own bank (when you open it)." or "the guild bank."))
+        if ns.RefreshUI then ns.RefreshUI() end
+    elseif cmd == "log" then
+        if ns.LogProbe then ns.LogProbe() end
     elseif cmd == "reset" then
         ns.ResetOwed()
     elseif cmd == "on" or cmd == "off" then

@@ -45,10 +45,12 @@ local function setOpen(kind, state)
     if state then
         if open[kind] then return end
         open[kind] = true
-        if kind == "guildbank" then
-            if ns.OnGuildBankOpened then ns.OnGuildBankOpened() end
+        if kind == "guildbank" and ns.OnGuildBankOpened then ns.OnGuildBankOpened() end
+        -- Deposit shortly after the chosen bank opens (the guild bank, or the player's own).
+        local wanted = (ns.db and ns.db.dest == "bank") and "bank" or "guildbank"
+        if kind == wanted then
             C_Timer.After(DEPOSIT_DELAY, function()
-                if open.guildbank then ns.TryDeposit(false) end
+                if open[wanted] then ns.TryDeposit(false) end
             end)
         end
     else
@@ -64,29 +66,50 @@ end
 -- Deposits
 ---------------------------------------------------------------------------
 
-local function RecordDeposit(amount)
+local function RecordDeposit(amount, dest)
     local c = ns.Char()
-    c.donated = c.donated + amount
-    c.deposits = (c.deposits or 0) + 1
-    c.lastDonated = time()
+    local own = (dest == "bank")
+    if own then
+        -- Saving to your own bank is not a guild donation, so it is kept out of the shared totals.
+        c.saved = (c.saved or 0) + amount
+    else
+        c.donated = c.donated + amount
+        c.deposits = (c.deposits or 0) + 1
+        c.lastDonated = time()
+    end
     c.owed = math.max(0, c.owed - amount)
     if c.owed < 1 then c.collected = 0 end   -- fully settled: start counting afresh
     local self_made = pending ~= nil
     pending = nil
-    local msg = (self_made and "deposited " or "credited your manual deposit of ")
-        .. ns.CoinText(amount) .. (self_made and " to the guild bank." or ".")
+    local msg
+    if self_made then
+        msg = "deposited " .. ns.CoinText(amount) .. (own and " to your own bank." or " to the guild bank.")
+    else
+        msg = "credited your manual deposit of " .. ns.CoinText(amount) .. "."
+    end
     if c.owed >= 1 then msg = msg .. " Still owed: " .. ns.CoinText(c.owed) .. "." end
     ns.Print(msg)
-    if ns.OnDepositRecorded then ns.OnDepositRecorded() end
+    if not own and ns.OnDepositRecorded then ns.OnDepositRecorded() end
     if ns.RefreshUI then ns.RefreshUI() end
+end
+
+-- Put gold into the player's own bank (the account-wide Warband bank on modern clients).
+local function DepositOwnBank(amount)
+    local bankType = Enum and Enum.BankType and Enum.BankType.Account
+    if not (C_Bank and C_Bank.DepositMoney and bankType) then return false end
+    return pcall(C_Bank.DepositMoney, bankType, amount)
 end
 
 function ns.IsGuildBankOpen() return open.guildbank == true end
 
 function ns.TryDeposit(manual)
     if not ns.db then return end
-    if not open.guildbank then
-        if manual then ns.Print("open the guild bank first, then try again.") end
+    local dest = (ns.db.dest == "bank") and "bank" or "guild"
+    local kind = (dest == "bank") and "bank" or "guildbank"
+    if not open[kind] then
+        if manual then
+            ns.Print("open " .. (dest == "bank" and "your bank" or "the guild bank") .. " first, then try again.")
+        end
         return
     end
     if pending then return end
@@ -110,19 +133,26 @@ function ns.TryDeposit(manual)
         end
         return
     end
-    if not DepositGuildBankMoney then
+    if dest == "guild" and not DepositGuildBankMoney then
         ns.Print("this client has no guild bank deposit function. Run /coffers debug and report it.")
         return
     end
     local token = {}
-    pending = { amount = amount, token = token }
-    DepositGuildBankMoney(amount)
+    pending = { amount = amount, token = token, dest = dest }
+    if dest == "guild" then
+        DepositGuildBankMoney(amount)
+    elseif not DepositOwnBank(amount) then
+        pending = nil
+        ns.Print("this client has no own-bank gold deposit. Run /coffers debug and report it, "
+            .. "or switch back with /coffers dest guild.")
+        return
+    end
     -- A blocked call can fail silently, so confirm by watching the money leave.
     C_Timer.After(CONFIRM_WAIT, function()
         if pending and pending.token == token then
             pending = nil
             ns.Print("the deposit of " .. ns.CoinText(amount) .. " did not go through. "
-                .. "Forever may be blocking addon deposits. Deposit by hand and it will still be credited.")
+                .. "Forever may be blocking addon deposits." .. (dest == "guild" and " Deposit by hand and it will still be credited." or ""))
         end
     end)
 end
@@ -194,11 +224,14 @@ local function OnMoneyChanged()
         c.collected = (c.collected or 0) + delta
         if ns.db.showChat then QueueChat(delta, delta * ns.db.rate / 100) end
         if ns.RefreshUI then ns.RefreshUI() end
+    elseif pending and pending.dest == "bank" and open.bank then
+        -- Our own-bank deposit leaving. (Other gold spent at a bank is not counted.)
+        RecordDeposit(math.min(-delta, pending.amount), "bank")
     elseif open.guildbank then
         -- Gold out while the guild bank is open is a deposit (ours or the player's own).
         local amount = -delta
         if pending then amount = math.min(amount, pending.amount) end
-        RecordDeposit(amount)
+        RecordDeposit(amount, "guild")
     end
 end
 

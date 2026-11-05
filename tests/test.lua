@@ -119,6 +119,12 @@ local function installGlobals()
         RegisterAddonMessagePrefix = function(prefix) S.prefix = prefix end,
         SendAddonMessage = function(prefix, msg, channel) S.sent[#S.sent + 1] = { prefix = prefix, msg = msg, channel = channel } end,
     }
+    _G.Enum.BankType = { Character = 0, Guild = 1, Account = 2 }
+    _G.C_Bank = S.noOwnBank and {} or { DepositMoney = function(bankType, amount)
+        S.ownDeposits = S.ownDeposits or {}
+        S.ownDeposits[#S.ownDeposits + 1] = { bankType = bankType, amount = amount }
+        if S.ownDepositWorks ~= false then S.money = S.money - amount; S.fire("PLAYER_MONEY") end
+    end }
     _G.QueryGuildBankLog = function(tab) S.logQuery = tab end
     _G.GetNumGuildBankMoneyTransactions = function() return #S.bankLog end
     _G.GetGuildBankMoneyTransaction = function(i) return (unpack or table.unpack)(S.bankLog[i]) end
@@ -788,6 +794,72 @@ do -- the custom-amount tooltip and the new panel controls
     ns.RefreshUI()
     p.share.scripts.OnClick(p.share)
     _G.GameTooltip = nil
+end
+
+do -- depositing to your own bank instead of the guild bank
+    local ns = fresh()
+    ns.HandleCommand("dest bank")
+    eq(ns.db.dest, "bank", "destination switched to own bank")
+    ns.Char().owed = 10 * GOLD
+    S.fire("GUILDBANKFRAME_OPENED"); advance(1)
+    eq(#S.deposits, 0, "guild bank untouched when the destination is own bank")
+    S.fire("GUILDBANKFRAME_CLOSED")
+    S.fire("BANKFRAME_OPENED"); advance(1)
+    eq(S.ownDeposits and #S.ownDeposits, 1, "own-bank deposit made when the bank opens")
+    eq(S.ownDeposits[1].bankType, 2, "uses the account (Warband) bank")
+    eq(S.ownDeposits[1].amount, 10 * GOLD, "full amount deposited")
+    eq(ns.Char().saved, 10 * GOLD, "recorded as saved")
+    eq(ns.Char().donated, 0, "not counted as a guild donation")
+    eq(ns.Char().deposits or 0, 0, "not counted as a guild deposit")
+    eq(math.floor(ns.Char().owed), 0, "owed is cleared")
+    S.fire("BANKFRAME_CLOSED")
+    advance(40)
+    eq(#S.sent, 0, "nothing is shared with the guild in own-bank mode")
+    ns.HandleCommand("dest guild")
+    eq(ns.db.dest, "guild", "switched back to the guild bank")
+    ns.HandleCommand("dest nonsense")
+    eq(ns.db.dest, "guild", "bad destination ignored")
+end
+
+do -- own bank: reserve applies, other bank spending is not a deposit, failures are reported
+    local ns = fresh()
+    ns.HandleCommand("dest bank")
+    ns.HandleCommand("reserve 45g")
+    ns.Char().owed = 10 * GOLD                 -- player has 50g
+    S.fire("BANKFRAME_OPENED"); advance(1)
+    eq(S.ownDeposits[1].amount, 5 * GOLD, "own-bank deposit stops at the reserve")
+    S.fire("BANKFRAME_CLOSED")
+    local ns2 = fresh({ ownDepositWorks = false })
+    ns2.HandleCommand("dest bank")
+    ns2.Char().owed = 10 * GOLD
+    S.fire("BANKFRAME_OPENED"); advance(1); advance(4)
+    truthy(printedAny("did not go through"), "a silent failure is reported")
+    eq(ns2.Char().saved, nil, "nothing recorded when the money did not leave")
+    S.fire("BANKFRAME_CLOSED")
+    local ns3 = fresh({ noOwnBank = true })
+    ns3.HandleCommand("dest bank")
+    ns3.Char().owed = 10 * GOLD
+    S.fire("BANKFRAME_OPENED"); advance(1)
+    truthy(printedAny("no own-bank gold deposit"), "missing API is reported")
+    local ns4 = fresh()
+    ns4.HandleCommand("dest bank")
+    S.fire("BANKFRAME_OPENED")
+    lose(1 * GOLD)                              -- e.g. buying a bank slot, not our deposit
+    eq(ns4.Char().saved, nil, "other spending at the bank is not counted")
+    S.fire("BANKFRAME_CLOSED")
+end
+
+do -- /coffers log
+    local ns = fresh()
+    ns.HandleCommand("log")
+    truthy(printedAny("open the guild bank first"), "log probe needs the bank open")
+    S.bankLog = { { "deposit", "Bob", 20000, 0, 0, 1, 2 }, { "withdraw", "Bob", 5000, 0, 0, 3, 0 }, { "repair", "Cara", 900, 0, 0, 4, 1 } }
+    S.fire("GUILDBANKFRAME_OPENED")
+    ns.HandleCommand("log"); advance(3)
+    truthy(printedAny("3 entries"), "log probe reports the entry count")
+    truthy(printedAny("deposit 1"), "log probe reports entry types")
+    truthy(printedAny("2 different players"), "log probe counts players")
+    S.fire("GUILDBANKFRAME_CLOSED")
 end
 
 real_print(string.format("%d checks passed, %d failed", passed, failures))
