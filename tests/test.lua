@@ -42,6 +42,7 @@ local function makeFrame(name)
         self.scripts[which] = fn
         if which == "OnEvent" then S.eventFrame = self end
     end
+    function f.SetFrameStrata(self, strata) rawset(self, "_strata", strata) end
     function f.HookScript(self, which, fn) self.hooks[which] = fn end
     function f.SetText(self, t) rawset(self, "_text", t) end
     function f.CreateFontString() return makeFrame() end
@@ -762,6 +763,7 @@ do -- the leaderboard window
     ns.HandleCommand("board")
     local b = _G.GuildCoffersBoard
     truthy(b, "board window built")
+    eq(b._strata, "FULLSCREEN_DIALOG", "board sits above the Options window")
     eq(b.lines[1][2]._text, "Bob", "top row is the biggest donor")
     truthy(b.lines[1][6]._text:find("Verified", 1, true), "verified shown")
     eq(b.lines[2][2]._text, "Test Char (you)", "your own row is marked")

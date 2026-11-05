@@ -62,6 +62,9 @@ local function Build()
     local w = CreateFrame("Frame", "GuildCoffersBoard", UIParent, "BasicFrameTemplateWithInset")
     w:SetSize(560, 88 + ROWS * 18 + 44)
     w:SetPoint("CENTER")
+    -- Above the game's Options window (which is what opens it from the settings panel).
+    w:SetFrameStrata("FULLSCREEN_DIALOG")
+    w:SetToplevel(true)
     w:SetMovable(true)
     w:EnableMouse(true)
     w:RegisterForDrag("LeftButton")
@@ -96,7 +99,8 @@ local function Build()
     end
     w.more = Cell(w, "GameFontHighlightSmall", 14, -84 - ROWS * 18 - 6, 530, "LEFT")
 
-    w:SetScript("OnShow", function()
+    w:SetScript("OnShow", function(self)
+        if self.Raise then self:Raise() end
         if ns.QueryBankLog and ns.IsGuildBankOpen and ns.IsGuildBankOpen() then ns.QueryBankLog() end
         Refresh()
     end)

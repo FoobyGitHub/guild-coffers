@@ -5,6 +5,7 @@ All notable changes to Guild Coffers are recorded here.
 ## [Unreleased] (alpha)
 
 ### Added
+- Fixed: the leaderboard opened behind the Options window when started from the settings panel. It now opens on top.
 - Guild leaderboard (`/coffers board` or the Leaderboard button): guildmates running the addon share their rate and donation totals over the guild addon channel, and the guild bank money log is read to mark players whose deposits it shows as Verified. Totals without a matching log entry are shown as Unverified. Sharing can be turned off (`/coffers share`).
 - Hover help on "Always keep" explains how to type an exact amount.
 - "Always keep" minimum: a deposit never takes you below an amount you choose (gold, silver or copper), set with buttons or `/coffers reserve 5g 50s`. Anything held back stays owed. Off by default.
