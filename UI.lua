@@ -90,10 +90,13 @@ local function RefreshPanel(p)
             p.share.label:SetTextColor(1, 1, 1)
         end
     end)
-    Safe("destination boxes", function()
+    Safe("destination", function()
         local own = ns.db.dest == "bank"
-        p.destGuild:SetChecked(not own)
-        p.destBank:SetChecked(own)
+        if p.destDropdown and p.destDropdown.GenerateMenu then p.destDropdown:GenerateMenu() end
+        if p.destGuild then
+            p.destGuild:SetChecked(not own)
+            p.destBank:SetChecked(own)
+        end
     end)
     Safe("chat box", function() p.chat:SetChecked(ns.db.showChat and true or false) end)
     Safe("tracking box", function() p.enabled:SetChecked(ns.db.enabled and true or false) end)
@@ -158,29 +161,64 @@ local function BuildPanel(parent)
         ns.db.showChat = v
     end)
 
-    -- Where the tax goes: two linked options, so exactly one is selected.
-    p.destGuild = Check(p, -72, "Deposit to the guild bank", function()
-        ns.db.dest = "guild"
-        if ns.ScheduleShare then ns.ScheduleShare() end
+    -- Where the tax goes: a dropdown with both choices, so exactly one is selected.
+    -- If this client cannot build the dropdown, two linked options are used instead.
+    local function SetDest(dest)
+        ns.db.dest = dest
+        if dest == "guild" and ns.ScheduleShare then ns.ScheduleShare() end
         ns.RefreshUI()
-    end, 290)
-    Tip(p.destGuild, "Deposit to the guild bank", "Your tax is deposited into the guild bank when you open it, "
-        .. "and counts as a guild donation on the leaderboard.")
+    end
+    local GUILD_TIP = "Your tax is deposited into the guild bank when you open it, and counts as a guild "
+        .. "donation on the leaderboard."
+    local BANK_TIP = "Your tax is saved into your own bank (the Warband bank) when you open it, for players "
+        .. "without a guild or who prefer to save it. It is private: not a guild donation, and nothing is "
+        .. "shared. Also: /coffers dest guild or bank."
+    Label(p, "GameFontNormalSmall", "TOPLEFT", 292, -68, "Deposit to")
+    local shareY
+    local builtDropdown = pcall(function()
+        local dd = CreateFrame("DropdownButton", nil, p, "WowStyle1DropdownTemplate")
+        if not dd.SetupMenu then
+            dd:Hide()
+            error("no SetupMenu")
+        end
+        dd:SetPoint("TOPLEFT", 290, -84)
+        dd:SetWidth(210)
+        dd:SetupMenu(function(_, root)
+            root:CreateRadio("The guild bank", function() return ns.db.dest ~= "bank" end,
+                function() SetDest("guild") end)
+            root:CreateRadio("My own bank (private)", function() return ns.db.dest == "bank" end,
+                function() SetDest("bank") end)
+        end)
+        -- Hover help (hooked, so the dropdown keeps its own highlight behaviour).
+        pcall(function()
+            dd:HookScript("OnEnter", function(self)
+                if not GameTooltip then return end
+                GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
+                GameTooltip:AddLine("Deposit to")
+                GameTooltip:AddLine("The guild bank: " .. GUILD_TIP, 1, 1, 1, true)
+                GameTooltip:AddLine("My own bank: " .. BANK_TIP, 1, 1, 1, true)
+                GameTooltip:Show()
+            end)
+            dd:HookScript("OnLeave", function() if GameTooltip then GameTooltip:Hide() end end)
+        end)
+        p.destDropdown = dd
+    end)
+    if builtDropdown then
+        shareY = -118
+    else
+        p.destGuild = Check(p, -84, "Deposit to the guild bank", function() SetDest("guild") end, 290)
+        Tip(p.destGuild, "Deposit to the guild bank", GUILD_TIP)
+        p.destBank = Check(p, -112, "Deposit to my own bank", function() SetDest("bank") end, 290)
+        Tip(p.destBank, "Deposit to my own bank", BANK_TIP)
+        shareY = -140
+    end
 
-    p.share = Check(p, -100, "Share my donations", function(v)
+    p.share = Check(p, shareY, "Share my donations", function(v)
         ns.db.share = v
         if v and ns.ScheduleShare then ns.ScheduleShare() end
-    end, 314)
+    end, 290)
     Tip(p.share, "Share my donations", "Lets guildmates see your rate and what you have donated on the leaderboard. "
         .. "Only applies when depositing to the guild bank.")
-
-    p.destBank = Check(p, -128, "Deposit to my own bank", function()
-        ns.db.dest = "bank"
-        ns.RefreshUI()
-    end, 290)
-    Tip(p.destBank, "Deposit to my own bank", "Your tax is saved into your own bank (the Warband bank) when you open it, "
-        .. "for players without a guild or who prefer to save it. It is private: not a guild donation, "
-        .. "and nothing is shared. Also: /coffers dest guild or bank.")
 
     -- The rate is shown as plain text (like the status lines below) and changed with
     -- buttons or /coffers rate <0-100>, rather than with a typed-in box.

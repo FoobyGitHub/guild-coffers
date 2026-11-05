@@ -32,7 +32,10 @@ end
 local function makeFrame(name)
     local f = { scripts = {}, events = {}, hooks = {} }
     setmetatable(f, { __index = function(_, k)
-        return function(self) return self end   -- any other method is a no-op returning self
+        -- Any other METHOD (CamelCase) is a no-op returning self; plain fields stay nil, as in the client.
+        if type(k) == "string" and k:match("^%u") then
+            return function(self) return self end
+        end
     end })
     function f.RegisterEvent(self, event)
         if S.rejectEvents[event] then error("unknown event " .. event) end
@@ -46,6 +49,7 @@ local function makeFrame(name)
     function f.GetChecked(self) return self._checked end
     function f.Disable(self) rawset(self, "_disabled", true) end
     function f.Enable(self) rawset(self, "_disabled", false) end
+    function f.SetupMenu(self, gen) rawset(self, "_gen", gen) end
     function f.SetFrameStrata(self, strata) rawset(self, "_strata", strata) end
     function f.HookScript(self, which, fn) self.hooks[which] = fn end
     function f.SetText(self, t) rawset(self, "_text", t) end
@@ -898,24 +902,51 @@ do -- opening the guild bank while set to own bank gives a reminder, not silence
     S.fire("GUILDBANKFRAME_CLOSED")
 end
 
-do -- destination: two linked options, only one selected
+local function menuItems(dd)
+    local items = {}
+    local root = { CreateRadio = function(_, text, isSel, setSel)
+        items[#items + 1] = { text = text, isSel = isSel, setSel = setSel }
+        return {}
+    end }
+    dd._gen(dd, root)
+    return items
+end
+
+do -- destination: a dropdown with both choices, one selected
     local ns = fresh()
     ns.HandleCommand("window")
     local p = ns.panels[#ns.panels]
-    eq(p.destGuild._checked, true, "guild bank selected by default")
-    eq(p.destBank._checked, false, "own bank not selected by default")
-    p.destBank.scripts.OnClick(p.destBank)
-    eq(ns.db.dest, "bank", "own bank chosen")
-    eq(p.destBank._checked, true, "own bank ticked")
-    eq(p.destGuild._checked, false, "guild bank unticked")
-    p.destGuild.scripts.OnClick(p.destGuild)
-    eq(ns.db.dest, "guild", "one click on guild bank switches straight back")
-    eq(p.destGuild._checked, true, "guild bank ticked")
-    eq(p.destBank._checked, false, "own bank unticked")
-    p.destGuild.scripts.OnClick(p.destGuild)
-    eq(p.destGuild._checked, true, "clicking the selected option keeps it selected")
+    truthy(p.destDropdown, "destination is a dropdown")
+    eq(p.destGuild, nil, "no tick boxes when the dropdown works")
+    local items = menuItems(p.destDropdown)
+    eq(#items, 2, "dropdown has both choices")
+    eq(items[1].text, "The guild bank", "first choice is the guild bank")
+    eq(items[1].isSel(), true, "guild bank selected by default")
+    eq(items[2].isSel(), false, "own bank not selected by default")
+    items[2].setSel()
+    eq(ns.db.dest, "bank", "choosing own bank")
+    items = menuItems(p.destDropdown)
+    eq(items[1].isSel(), false, "guild bank no longer selected")
+    eq(items[2].isSel(), true, "own bank selected")
+    items[1].setSel()
+    eq(ns.db.dest, "guild", "choosing the guild bank again, in one step")
     ns.HandleCommand("dest bank")
-    eq(p.destBank._checked, true, "the command updates the options")
+    eq(menuItems(p.destDropdown)[2].isSel(), true, "the command is reflected in the dropdown")
+    eq(p.share._disabled, true, "sharing greyed out in own-bank mode")
+end
+
+do -- if the dropdown cannot be built, linked options are used instead
+    local ns = fresh({ badTemplate = "WowStyle1DropdownTemplate" })
+    ns.HandleCommand("window")
+    local p = ns.panels[#ns.panels]
+    eq(p.destDropdown, nil, "no dropdown on a client without the template")
+    eq(p.destGuild._checked, true, "fallback: guild bank selected by default")
+    p.destBank.scripts.OnClick(p.destBank)
+    eq(ns.db.dest, "bank", "fallback: own bank chosen")
+    eq(p.destGuild._checked, false, "fallback: guild bank unticked")
+    p.destGuild.scripts.OnClick(p.destGuild)
+    eq(ns.db.dest, "guild", "fallback: one click switches back")
+    eq(printedAny("interface failed"), false, "falling back is not an error")
 end
 
 real_print(string.format("%d checks passed, %d failed", passed, failures))
