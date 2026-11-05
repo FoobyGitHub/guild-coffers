@@ -57,10 +57,7 @@ end
 
 local function RefreshPanel(p)
     local c = ns.Char()
-    Safe("rate box", function()
-        -- Don't overwrite the box while the player is typing in it.
-        if not p.rateBox.typing then p.rateBox:SetText(tostring(ns.db.rate)) end
-    end)
+    Safe("rate text", function() p.rateText:SetText(ns.db.rate .. "%") end)
     Safe("chat box", function() p.chat:SetChecked(ns.db.showChat and true or false) end)
     Safe("tracking box", function() p.enabled:SetChecked(ns.db.enabled and true or false) end)
     Safe("counter box", function() p.showHud:SetChecked(ns.db.showHud and true or false) end)
@@ -117,41 +114,32 @@ local function BuildPanel(parent)
     p.lock = Check(p, -128, "Lock the counter's position", function(v)
         ns.db.hudLocked = v
     end)
-    p.chat = Check(p, -156, "Also show a chat line with each gain", function(v)
+    p.chat = Check(p, -156, "Show tax in chat", function(v)
         ns.db.showChat = v
     end)
 
-    Label(p, "GameFontHighlight", "TOPLEFT", 20, -198, "Tax rate (%)")
-    p.rateBox = CreateFrame("EditBox", nil, p, "InputBoxTemplate")
-    p.rateBox.typing = false
-    p.rateBox:SetSize(40, 20)
-    p.rateBox:SetPoint("TOPLEFT", 130, -194)
-    p.rateBox:SetAutoFocus(false)
-    p.rateBox:SetNumeric(true)
-    p.rateBox:SetMaxLetters(3)
-    local function ApplyRate()
-        if not ns.SetRate(p.rateBox:GetText()) then
-            p.rateBox:SetText(tostring(ns.db.rate))
-        end
+    -- The rate is shown as plain text (like the status lines below) and changed with
+    -- buttons or /coffers rate <0-100>, rather than with a typed-in box.
+    Label(p, "GameFontHighlight", "TOPLEFT", 20, -198, "Tax rate")
+    local function RateButton(text, width, delta)
+        local b = CreateFrame("Button", nil, p, "UIPanelButtonTemplate")
+        b:SetSize(width, 22)
+        b:SetText(text)
+        b:SetScript("OnClick", function() ns.SetRate((ns.db.rate or 0) + delta) end)
+        return b
     end
-    p.rateBox:SetScript("OnEnterPressed", function(self) ApplyRate() self:ClearFocus() end)
-    p.rateBox:SetScript("OnEditFocusGained", function(self) self.typing = true end)
-    p.rateBox:SetScript("OnEditFocusLost", function(self)
-        self.typing = false
-        ApplyRate()
-    end)
-
-    local minus = CreateFrame("Button", nil, p, "UIPanelButtonTemplate")
-    minus:SetSize(24, 22)
-    minus:SetPoint("LEFT", p.rateBox, "RIGHT", 8, 0)
-    minus:SetText("-")
-    minus:SetScript("OnClick", function() ns.SetRate((ns.db.rate or 0) - 1) end)
-
-    local plus = CreateFrame("Button", nil, p, "UIPanelButtonTemplate")
-    plus:SetSize(24, 22)
-    plus:SetPoint("LEFT", minus, "RIGHT", 4, 0)
-    plus:SetText("+")
-    plus:SetScript("OnClick", function() ns.SetRate((ns.db.rate or 0) + 1) end)
+    p.minus5 = RateButton("-5", 32, -5)
+    p.minus5:SetPoint("TOPLEFT", 130, -194)
+    p.minus = RateButton("-", 24, -1)
+    p.minus:SetPoint("LEFT", p.minus5, "RIGHT", 4, 0)
+    p.rateText = p:CreateFontString(nil, "OVERLAY", "GameFontNormalLarge")
+    p.rateText:SetPoint("LEFT", p.minus, "RIGHT", 6, 0)
+    p.rateText:SetWidth(56)
+    p.rateText:SetJustifyH("CENTER")
+    p.plus = RateButton("+", 24, 1)
+    p.plus:SetPoint("LEFT", p.rateText, "RIGHT", 6, 0)
+    p.plus5 = RateButton("+5", 32, 5)
+    p.plus5:SetPoint("LEFT", p.plus, "RIGHT", 4, 0)
 
     p.owed = Label(p, "GameFontHighlight", "TOPLEFT", 20, -234)
     p.collected = Label(p, "GameFontHighlight", "TOPLEFT", 20, -256)
@@ -163,6 +151,8 @@ local function BuildPanel(parent)
     deposit:SetPoint("TOPLEFT", 20, -334)
     deposit:SetText("Deposit now")
     deposit:SetScript("OnClick", function() ns.TryDeposit(true) end)
+
+    p.version = Label(p, "GameFontHighlightSmall", "TOPLEFT", 20, -368, "Version " .. ns.GetVersion())
 
     -- Refresh whenever the panel is shown, so nothing depends on when it was built.
     p:SetScript("OnShow", function() RefreshPanel(p) end)

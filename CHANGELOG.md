@@ -14,8 +14,9 @@ All notable changes to Guild Coffers are recorded here.
 - Tracking is on and the rate is 10% by default.
 - Amounts under one copper are shown as "<1c" instead of "0c", and the counter shows what has been collected, so tiny early loot is visibly tracked. Fractions build up until a whole copper can be deposited.
 - Fixed: the first time the window opened its status lines and tick box were blank.
-- Fixed: the tax rate box in the settings panel could appear empty. It now shows 10 by default, follows the +/- buttons, and can be typed into.
-- Optional chat line with each gain, e.g. "+3c received, tax <1c (total to keep: 2c)". Off by default; turn it on in settings or with `/coffers chat`.
+- The tax rate in the settings panel is now plain text (10% by default) changed with -5, -, +, +5 buttons or `/coffers rate <0-100>`. The typed-in box could appear empty on the real client, so it was removed.
+- Optional chat summary of the tax, e.g. "+5c received, tax <1c (total to keep: 3c)". Gains close together (such as selling several items) are added up and reported once, after about 3 seconds or when the vendor window closes. Off by default; turn it on in settings ("Show tax in chat") or with `/coffers chat`.
+- The settings panel shows the addon version, so testers can tell which build they are running.
 - Each interface part is built separately, so one failing piece is reported once and the rest keep working.
 - `/coffers status`, `/coffers on|off`, `/coffers deposit` and `/coffers debug` (compatibility report for bug reports).
 - The guild bank is detected both from game events and by hooking Blizzard's guild bank frame, so the automatic deposit still fires if this client opens the bank differently.

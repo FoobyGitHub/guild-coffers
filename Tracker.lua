@@ -117,6 +117,31 @@ end
 -- Gold tracking
 ---------------------------------------------------------------------------
 
+-- Chat summary: gains that arrive close together (selling a bag of items, looting a
+-- group of mobs) are added up and reported once, after things go quiet or the vendor
+-- window closes, instead of one line per item.
+local SUMMARY_DELAY = 3.0
+local pendingChat
+
+local function FlushChat()
+    local p = pendingChat
+    pendingChat = nil
+    if not p or not ns.db or not ns.db.showChat then return end
+    ns.Print(string.format("+%s received, tax %s (total to keep: %s)",
+        ns.CoinText(p.gain), ns.OwedText(p.tax), ns.OwedText(ns.Char().owed)))
+end
+
+local function QueueChat(gain, tax)
+    pendingChat = pendingChat or { gain = 0, tax = 0 }
+    pendingChat.gain = pendingChat.gain + gain
+    pendingChat.tax = pendingChat.tax + tax
+    local token = {}
+    pendingChat.token = token
+    C_Timer.After(SUMMARY_DELAY, function()
+        if pendingChat and pendingChat.token == token then FlushChat() end
+    end)
+end
+
 local function OnMoneyChanged()
     local money = GetMoney()
     if ns.isSecret(money) then return end
@@ -135,10 +160,7 @@ local function OnMoneyChanged()
         local c = ns.Char()
         c.owed = c.owed + delta * ns.db.rate / 100
         c.collected = (c.collected or 0) + delta
-        if ns.db.showChat then
-            ns.Print(string.format("+%s received, tax %s (total to keep: %s)",
-                ns.CoinText(delta), ns.OwedText(delta * ns.db.rate / 100), ns.OwedText(c.owed)))
-        end
+        if ns.db.showChat then QueueChat(delta, delta * ns.db.rate / 100) end
         if ns.RefreshUI then ns.RefreshUI() end
     elseif open.guildbank then
         -- Gold out while the guild bank is open is a deposit (ours or the player's own).
@@ -154,6 +176,7 @@ ns.On("PLAYER_LOGIN", function()
     if ns.isSecret(lastMoney) then lastMoney = nil end
 end)
 ns.On("PLAYER_MONEY", OnMoneyChanged)
+ns.On("MERCHANT_CLOSED", function() if pendingChat then FlushChat() end end)
 
 ---------------------------------------------------------------------------
 -- Window tracking: modern interaction events, with classic-style fallbacks

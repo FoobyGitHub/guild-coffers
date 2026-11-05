@@ -88,6 +88,7 @@ local function installGlobals()
     end
     _G.GuildCoffersDB = nil
     _G.GuildCoffersWindow = nil
+    _G.GetAddOnMetadata = S.addonVersion and function() return S.addonVersion end or nil
     _G.GuildCoffersHUD = nil
     _G.Settings = nil
     _G.InterfaceOptions_AddCategory = nil
@@ -369,41 +370,65 @@ do -- the window is filled in the first time it opens, not only on later opens
     truthy(p.collected._text:find("100g", 1, true), "collected filled on first open")
 end
 
-do -- the tax rate box shows 10 by default and can be changed by typing
+do -- the tax rate is shown as text and changed with buttons
     local ns = fresh()
     ns.HandleCommand("window")
     local p = ns.panels[#ns.panels]
-    eq(p.rateBox._text, "10", "rate box shows the default 10")
+    eq(p.rateText._text, "10%", "rate shown as 10% by default")
     truthy(p.scripts.OnShow, "panel refreshes itself whenever it is shown")
-    p.rateBox.scripts.OnEditFocusGained(p.rateBox)           -- player clicks into the box
-    p.rateBox:SetText("25")                                  -- and types
-    ns.RefreshUI()
-    eq(p.rateBox._text, "25", "typing is not overwritten by a refresh")
-    p.rateBox.scripts.OnEditFocusLost(p.rateBox)             -- clicks away
-    eq(ns.db.rate, 25, "typed rate applied when leaving the box")
-    eq(p.rateBox._text, "25", "box shows the new rate")
-    ns.SetRate(30)
-    eq(p.rateBox._text, "30", "box follows the +/- buttons and commands")
+    p.plus.scripts.OnClick()
+    eq(ns.db.rate, 11, "+ raises the rate by 1")
+    eq(p.rateText._text, "11%", "text follows the + button")
+    p.plus5.scripts.OnClick()
+    eq(ns.db.rate, 16, "+5 raises the rate by 5")
+    p.minus5.scripts.OnClick(); p.minus.scripts.OnClick()
+    eq(ns.db.rate, 10, "-5 and - lower it")
+    ns.SetRate(99); p.plus5.scripts.OnClick()
+    eq(ns.db.rate, 100, "rate stops at 100")
+    ns.SetRate(2); p.minus5.scripts.OnClick()
+    eq(ns.db.rate, 0, "rate stops at 0")
+    ns.HandleCommand("rate 15")
+    eq(p.rateText._text, "15%", "text follows /coffers rate")
 end
 
-do -- optional chat line with each gain
+do -- the panel shows which version is running
+    fresh({ addonVersion = "0.1.5-test" })
+    S.ns.HandleCommand("window")
+    eq(S.ns.panels[#S.ns.panels].version._text, "Version 0.1.5-test", "version shown in the panel")
+    fresh({ addonVersion = "@project-version@" })
+    S.ns.HandleCommand("window")
+    eq(S.ns.panels[#S.ns.panels].version._text, "Version dev", "unpackaged copy shows dev")
+end
+
+do -- optional chat summary, batched rather than one line per gain
     local ns = fresh()
-    eq(ns.db.showChat, false, "chat line is off by default")
-    gain(100 * GOLD)
-    eq(printedAny("received, tax"), false, "no chat line when off")
+    eq(ns.db.showChat, false, "chat summary is off by default")
+    gain(100 * GOLD); advance(5)
+    eq(printedAny("received, tax"), false, "nothing printed when off")
     ns.HandleCommand("chat")
     eq(ns.db.showChat, true, "chat command turns it on")
-    gain(30)                                                 -- 30 copper at 10% = 3 copper
-    truthy(printedAny("+30c received, tax 3c (total to keep: 10g 3c)"), "chat line shows gain, tax and running total")
-    gain(5)                                                  -- 0.5 copper of tax
-    truthy(printedAny("tax <1c"), "tiny tax shown as <1c")
-    S.fire("PLAYER_INTERACTION_MANAGER_FRAME_SHOW", 3)       -- a trade
     local n = #S.printed
-    gain(10 * GOLD)
-    eq(#S.printed, n, "no chat line for gold that is not taxed")
+    gain(2); advance(1); gain(2); advance(1); gain(1)          -- vendor-style gains close together
+    eq(#S.printed, n, "nothing printed while gains keep arriving")
+    advance(3.5)
+    eq(#S.printed, n + 1, "one summary once things go quiet")
+    truthy(printedAny("+5c received, tax <1c (total to keep: 10g)"), "summary adds the gains together")
+    gain(30)                                                   -- 3c of tax
+    S.fire("MERCHANT_CLOSED")
+    truthy(printedAny("+30c received, tax 3c (total to keep: 10g 3c)"), "closing the vendor prints the summary at once")
+    local k = #S.printed
+    advance(5)
+    eq(#S.printed, k, "no duplicate summary afterwards")
+    S.fire("PLAYER_INTERACTION_MANAGER_FRAME_SHOW", 3)         -- a trade
+    gain(10 * GOLD); advance(5)
+    eq(#S.printed, k, "no summary for gold that is not taxed")
     S.fire("PLAYER_INTERACTION_MANAGER_FRAME_HIDE", 3)
-    ns.HandleCommand("chat")
-    eq(ns.db.showChat, false, "chat command turns it off again")
+    advance(2)
+    gain(30)
+    ns.HandleCommand("chat")                                   -- turn off with a summary pending
+    local j = #S.printed
+    advance(5)
+    eq(#S.printed, j, "pending summary dropped if chat is turned off")
 end
 
 do -- a partial deposit keeps the collected figure

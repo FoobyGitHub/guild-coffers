@@ -20,7 +20,10 @@ end
 
 function ns.GetVersion()
     local getMeta = (C_AddOns and C_AddOns.GetAddOnMetadata) or GetAddOnMetadata
-    return (getMeta and getMeta(addonName, "Version")) or "dev"
+    local v = getMeta and getMeta(addonName, "Version")
+    -- An unpackaged copy still has the placeholder from the TOC.
+    if not v or v == "" or v:find("@", 1, true) then return "dev" end
+    return v
 end
 
 -- Plain-text money, e.g. "12g 34s 5c". No dependency on client money APIs.
@@ -132,7 +135,7 @@ local function PrintHelp()
     ns.Print("commands:")
     print("  /coffers - open the settings (AddOns menu)")
     print("  /coffers hud - show or hide the on-screen tax counter")
-    print("  /coffers chat - add or remove a chat line showing the tax on each gain")
+    print("  /coffers chat - show or hide a chat summary of the tax on your gains")
     print("  /coffers window - open the settings in a standalone window")
     print("  /coffers rate <0-100> - set your tax percentage")
     print("  /coffers on | off - turn tracking on or off")
@@ -199,7 +202,7 @@ function ns.HandleCommand(input)
         if ns.RefreshUI then ns.RefreshUI() end
     elseif cmd == "chat" then
         ns.db.showChat = not ns.db.showChat
-        ns.Print("chat line " .. (ns.db.showChat and "on." or "off."))
+        ns.Print("tax summary in chat " .. (ns.db.showChat and "on." or "off."))
         if ns.RefreshUI then ns.RefreshUI() end
     elseif cmd == "window" then
         if ns.ShowWindow then ns.ShowWindow() end

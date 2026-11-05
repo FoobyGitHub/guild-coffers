@@ -19,7 +19,7 @@ A passive guild tax addon for **World of Warcraft: Forever**. You choose a perce
 |---|---|
 | `/coffers` | Open the settings (AddOns menu) |
 | `/coffers hud` | Show or hide the on-screen tax counter |
-| `/coffers chat` | Add or remove a chat line showing the tax on each gain |
+| `/coffers chat` | Show or hide a chat summary of the tax on your gains |
 | `/coffers window` | Open the settings in a standalone window |
 | `/coffers rate <0-100>` | Set your tax percentage |
 | `/coffers on` / `off` | Turn tracking on or off |
