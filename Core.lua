@@ -8,7 +8,7 @@ ns.frame = CreateFrame("Frame")
 -- Forever inherits retail's "secret value" restrictions; guard where it exists.
 ns.isSecret = issecretvalue or function() return false end
 
-local DEFAULTS = { rate = 10, enabled = true, showHud = true, hudLocked = false }
+local DEFAULTS = { rate = 10, enabled = true, showHud = true, hudLocked = false, showChat = false }
 
 ---------------------------------------------------------------------------
 -- Helpers
@@ -132,6 +132,7 @@ local function PrintHelp()
     ns.Print("commands:")
     print("  /coffers - open the settings (AddOns menu)")
     print("  /coffers hud - show or hide the on-screen tax counter")
+    print("  /coffers chat - add or remove a chat line showing the tax on each gain")
     print("  /coffers window - open the settings in a standalone window")
     print("  /coffers rate <0-100> - set your tax percentage")
     print("  /coffers on | off - turn tracking on or off")
@@ -195,6 +196,10 @@ function ns.HandleCommand(input)
     elseif cmd == "hud" then
         ns.db.showHud = not ns.db.showHud
         ns.Print("tax counter " .. (ns.db.showHud and "shown." or "hidden."))
+        if ns.RefreshUI then ns.RefreshUI() end
+    elseif cmd == "chat" then
+        ns.db.showChat = not ns.db.showChat
+        ns.Print("chat line " .. (ns.db.showChat and "on." or "off."))
         if ns.RefreshUI then ns.RefreshUI() end
     elseif cmd == "window" then
         if ns.ShowWindow then ns.ShowWindow() end

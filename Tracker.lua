@@ -135,6 +135,10 @@ local function OnMoneyChanged()
         local c = ns.Char()
         c.owed = c.owed + delta * ns.db.rate / 100
         c.collected = (c.collected or 0) + delta
+        if ns.db.showChat then
+            ns.Print(string.format("+%s received, tax %s (total to keep: %s)",
+                ns.CoinText(delta), ns.OwedText(delta * ns.db.rate / 100), ns.OwedText(c.owed)))
+        end
         if ns.RefreshUI then ns.RefreshUI() end
     elseif open.guildbank then
         -- Gold out while the guild bank is open is a deposit (ours or the player's own).

@@ -58,8 +58,10 @@ end
 local function RefreshPanel(p)
     local c = ns.Char()
     Safe("rate box", function()
-        if not p.rateBox:HasFocus() then p.rateBox:SetText(tostring(ns.db.rate)) end
+        -- Don't overwrite the box while the player is typing in it.
+        if not p.rateBox.typing then p.rateBox:SetText(tostring(ns.db.rate)) end
     end)
+    Safe("chat box", function() p.chat:SetChecked(ns.db.showChat and true or false) end)
     Safe("tracking box", function() p.enabled:SetChecked(ns.db.enabled and true or false) end)
     Safe("counter box", function() p.showHud:SetChecked(ns.db.showHud and true or false) end)
     Safe("lock box", function() p.lock:SetChecked(ns.db.hudLocked and true or false) end)
@@ -115,11 +117,15 @@ local function BuildPanel(parent)
     p.lock = Check(p, -128, "Lock the counter's position", function(v)
         ns.db.hudLocked = v
     end)
+    p.chat = Check(p, -156, "Also show a chat line with each gain", function(v)
+        ns.db.showChat = v
+    end)
 
-    Label(p, "GameFontHighlight", "TOPLEFT", 20, -170, "Tax rate (%)")
+    Label(p, "GameFontHighlight", "TOPLEFT", 20, -198, "Tax rate (%)")
     p.rateBox = CreateFrame("EditBox", nil, p, "InputBoxTemplate")
+    p.rateBox.typing = false
     p.rateBox:SetSize(40, 20)
-    p.rateBox:SetPoint("TOPLEFT", 130, -166)
+    p.rateBox:SetPoint("TOPLEFT", 130, -194)
     p.rateBox:SetAutoFocus(false)
     p.rateBox:SetNumeric(true)
     p.rateBox:SetMaxLetters(3)
@@ -129,7 +135,11 @@ local function BuildPanel(parent)
         end
     end
     p.rateBox:SetScript("OnEnterPressed", function(self) ApplyRate() self:ClearFocus() end)
-    p.rateBox:SetScript("OnEditFocusLost", ApplyRate)
+    p.rateBox:SetScript("OnEditFocusGained", function(self) self.typing = true end)
+    p.rateBox:SetScript("OnEditFocusLost", function(self)
+        self.typing = false
+        ApplyRate()
+    end)
 
     local minus = CreateFrame("Button", nil, p, "UIPanelButtonTemplate")
     minus:SetSize(24, 22)
@@ -143,16 +153,19 @@ local function BuildPanel(parent)
     plus:SetText("+")
     plus:SetScript("OnClick", function() ns.SetRate((ns.db.rate or 0) + 1) end)
 
-    p.owed = Label(p, "GameFontHighlight", "TOPLEFT", 20, -206)
-    p.collected = Label(p, "GameFontHighlight", "TOPLEFT", 20, -228)
-    p.donated = Label(p, "GameFontHighlight", "TOPLEFT", 20, -250)
-    p.last = Label(p, "GameFontHighlight", "TOPLEFT", 20, -272)
+    p.owed = Label(p, "GameFontHighlight", "TOPLEFT", 20, -234)
+    p.collected = Label(p, "GameFontHighlight", "TOPLEFT", 20, -256)
+    p.donated = Label(p, "GameFontHighlight", "TOPLEFT", 20, -278)
+    p.last = Label(p, "GameFontHighlight", "TOPLEFT", 20, -300)
 
     local deposit = CreateFrame("Button", nil, p, "UIPanelButtonTemplate")
     deposit:SetSize(120, 24)
-    deposit:SetPoint("TOPLEFT", 20, -306)
+    deposit:SetPoint("TOPLEFT", 20, -334)
     deposit:SetText("Deposit now")
     deposit:SetScript("OnClick", function() ns.TryDeposit(true) end)
+
+    -- Refresh whenever the panel is shown, so nothing depends on when it was built.
+    p:SetScript("OnShow", function() RefreshPanel(p) end)
 
     return p
 end
@@ -189,7 +202,7 @@ end
 
 local function BuildWindow()
     local w = CreateFrame("Frame", "GuildCoffersWindow", UIParent, "BasicFrameTemplateWithInset")
-    w:SetSize(520, 350)
+    w:SetSize(520, 390)
     w:SetPoint("CENTER")
     w:SetMovable(true)
     w:EnableMouse(true)

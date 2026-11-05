@@ -47,7 +47,8 @@ local function makeFrame(name)
     function f.IsShown(self) return self._shown ~= false end
     function f.Show(self) rawset(self, "_shown", true) end
     function f.Hide(self) rawset(self, "_shown", false) end
-    function f.HasFocus() return false end
+    function f.HasFocus() return true end   -- worst case: a client that always reports focus
+    function f.GetText(self) return self._text end
     if name then _G[name] = f end
     return f
 end
@@ -366,6 +367,43 @@ do -- the window is filled in the first time it opens, not only on later opens
     local p = ns.panels[#ns.panels]
     truthy(p and p.owed._text and p.owed._text:find("Keep aside now: 10g", 1, true), "status filled on first open")
     truthy(p.collected._text:find("100g", 1, true), "collected filled on first open")
+end
+
+do -- the tax rate box shows 10 by default and can be changed by typing
+    local ns = fresh()
+    ns.HandleCommand("window")
+    local p = ns.panels[#ns.panels]
+    eq(p.rateBox._text, "10", "rate box shows the default 10")
+    truthy(p.scripts.OnShow, "panel refreshes itself whenever it is shown")
+    p.rateBox.scripts.OnEditFocusGained(p.rateBox)           -- player clicks into the box
+    p.rateBox:SetText("25")                                  -- and types
+    ns.RefreshUI()
+    eq(p.rateBox._text, "25", "typing is not overwritten by a refresh")
+    p.rateBox.scripts.OnEditFocusLost(p.rateBox)             -- clicks away
+    eq(ns.db.rate, 25, "typed rate applied when leaving the box")
+    eq(p.rateBox._text, "25", "box shows the new rate")
+    ns.SetRate(30)
+    eq(p.rateBox._text, "30", "box follows the +/- buttons and commands")
+end
+
+do -- optional chat line with each gain
+    local ns = fresh()
+    eq(ns.db.showChat, false, "chat line is off by default")
+    gain(100 * GOLD)
+    eq(printedAny("received, tax"), false, "no chat line when off")
+    ns.HandleCommand("chat")
+    eq(ns.db.showChat, true, "chat command turns it on")
+    gain(30)                                                 -- 30 copper at 10% = 3 copper
+    truthy(printedAny("+30c received, tax 3c (total to keep: 10g 3c)"), "chat line shows gain, tax and running total")
+    gain(5)                                                  -- 0.5 copper of tax
+    truthy(printedAny("tax <1c"), "tiny tax shown as <1c")
+    S.fire("PLAYER_INTERACTION_MANAGER_FRAME_SHOW", 3)       -- a trade
+    local n = #S.printed
+    gain(10 * GOLD)
+    eq(#S.printed, n, "no chat line for gold that is not taxed")
+    S.fire("PLAYER_INTERACTION_MANAGER_FRAME_HIDE", 3)
+    ns.HandleCommand("chat")
+    eq(ns.db.showChat, false, "chat command turns it off again")
 end
 
 do -- a partial deposit keeps the collected figure
