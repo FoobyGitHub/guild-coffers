@@ -167,7 +167,6 @@ local function fresh(opts)
         assert(loadfile(file))("GuildCoffers", ns)
     end
     S.fire("ADDON_LOADED", "GuildCoffers")
-    if not S.showNotice then ns.db.sharingNoticeShown = true end   -- only the notice test wants it
     S.money = 50 * 10000
     S.fire("PLAYER_LOGIN")
     S.ns = ns
@@ -689,12 +688,11 @@ do -- announcing ourselves after login
     eq(S.sent[2].msg, "H|1", "hello asks who else uses the addon")
 end
 
-do -- the player is told once that guild-bank mode shares with the guild; nothing sent outside a guild
-    local ns = fresh({ showNotice = true })
+do -- no separate share setting; nothing sent outside a guild
+    local ns = fresh()
     advance(16)
-    truthy(printedAny("shown to guildmates on the leaderboard"), "sharing notice shown at first login")
-    eq(ns.db.sharingNoticeShown, true, "notice remembered so it is shown only once")
     eq(ns.db.share, nil, "there is no separate share setting")
+    eq(printedAny("leaderboard"), false, "no notice printed at login")
     local ns2 = fresh({ inGuild = false })
     advance(16)
     eq(#S.sent, 0, "nothing sent when not in a guild")

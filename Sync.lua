@@ -253,12 +253,6 @@ ns.On("PLAYER_LOGIN", function()
     if reg then pcall(reg, PREFIX) end
     C_Timer.After(LOGIN_DELAY, function()
         if ns.db and ns.db.dest ~= "bank" and IsInGuild and IsInGuild() then
-            -- Tell the player once that guild-bank mode shares their totals with the guild.
-            if not ns.db.sharingNoticeShown then
-                ns.db.sharingNoticeShown = true
-                ns.Print("your tax rate and guild donations are shown to guildmates on the leaderboard. "
-                    .. "To keep them private, choose \"My own bank\" in the settings (/coffers).")
-            end
             ns.ShareNow()
             Send("H|" .. PROTOCOL)   -- ask who else is using the addon
         end
