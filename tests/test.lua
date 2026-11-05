@@ -44,7 +44,10 @@ local function makeFrame(name)
     function f.HookScript(self, which, fn) self.hooks[which] = fn end
     function f.SetText(self, t) rawset(self, "_text", t) end
     function f.CreateFontString() return makeFrame() end
-    function f.IsShown() return true end
+    function f.IsShown(self) return self._shown ~= false end
+    function f.Show(self) rawset(self, "_shown", true) end
+    function f.Hide(self) rawset(self, "_shown", false) end
+    function f.HasFocus() return false end
     if name then _G[name] = f end
     return f
 end
@@ -55,7 +58,12 @@ local function installGlobals()
         for i = 1, select("#", ...) do t[#t + 1] = tostring((select(i, ...))) end
         S.printed[#S.printed + 1] = table.concat(t, " ")
     end
-    _G.CreateFrame = function(_, name) return makeFrame(name) end
+    _G.CreateFrame = function(_, name, _, template)
+        if S.badTemplate and template == S.badTemplate then
+            error("unknown template " .. template)
+        end
+        return makeFrame(name)
+    end
     _G.UIParent = makeFrame()
     _G.UISpecialFrames = {}
     _G.tinsert = table.insert
@@ -78,6 +86,22 @@ local function installGlobals()
         end
     end
     _G.GuildCoffersDB = nil
+    _G.GuildCoffersWindow = nil
+    _G.GuildCoffersHUD = nil
+    _G.Settings = nil
+    _G.InterfaceOptions_AddCategory = nil
+    _G.InterfaceOptionsFrame_OpenToCategory = nil
+    if S.settingsApi then
+        _G.Settings = {
+            RegisterCanvasLayoutCategory = function(p) S.registeredPanel = p; return { GetID = function() return 42 end } end,
+            RegisterAddOnCategory = function(cat) S.registeredCategory = cat end,
+            OpenToCategory = function(id) S.openedCategory = id end,
+        }
+    end
+    if S.legacyApi then
+        _G.InterfaceOptions_AddCategory = function(p) S.legacyAdded = p end
+        _G.InterfaceOptionsFrame_OpenToCategory = function() S.legacyOpened = (S.legacyOpened or 0) + 1 end
+    end
     _G.GuildBankFrame = nil
     if S.guildBankFrame then
         _G.GuildBankFrame = makeFrame()
@@ -298,12 +322,84 @@ end
 do -- character key keeps spaces, window builds, status and unknown commands work
     local ns = fresh()
     truthy(ns.CharKey():find("Test Char", 1, true), "character key keeps the full name")
-    ns.HandleCommand("")       -- builds and opens the window
-    truthy(_G.GuildCoffersFrame, "window built")
+    ns.HandleCommand("window")       -- builds and opens the standalone window
+    truthy(_G.GuildCoffersWindow, "standalone window built")
     ns.HandleCommand("status")
-    truthy(printedAny("Owed now"), "status prints")
+    truthy(printedAny("Keep aside"), "status prints")
     ns.HandleCommand("nonsense")
     truthy(printedAny("commands:"), "help shown for unknown command")
+end
+
+do -- the on-screen counter shows what to keep aside
+    local ns = fresh()
+    truthy(ns.hud, "counter built")
+    gain(100 * GOLD)
+    truthy(ns.hud.line1._text:find("10g", 1, true), "counter shows 10g to keep")
+    truthy(ns.hud.line2._text:find("100g collected at 10%", 1, true), "counter shows collected and rate")
+    eq(ns.Char().collected, 100 * GOLD, "collected tracked")
+    S.fire("GUILDBANKFRAME_OPENED"); advance(0.6)
+    eq(ns.Char().collected, 0, "collected resets after a full deposit")
+    truthy(ns.hud.line1._text:find("0c", 1, true), "counter shows nothing left to keep")
+    eq(printedAny("interface failed"), false, "no interface errors reported")
+end
+
+do -- a partial deposit keeps the collected figure
+    local ns = fresh()
+    gain(100 * GOLD)
+    lose(147 * GOLD)                  -- leaves 3g
+    S.fire("GUILDBANKFRAME_OPENED"); advance(0.6)
+    eq(ns.Char().collected, 100 * GOLD, "collected kept after a partial deposit")
+end
+
+do -- counter follows on/off and the /coffers hud toggle
+    local ns = fresh()
+    eq(ns.db.enabled, true, "tracking is on by default")
+    eq(ns.db.rate, 10, "rate is 10 by default")
+    eq(ns.db.showHud, true, "counter is shown by default")
+    ns.HandleCommand("off")
+    truthy(ns.hud.line1._text:find("tracking off", 1, true), "counter says tracking is off")
+    ns.HandleCommand("on")
+    ns.HandleCommand("hud")
+    eq(ns.db.showHud, false, "hud command hides the counter")
+    eq(ns.hud._shown, false, "counter hidden")
+    ns.HandleCommand("hud")
+    eq(ns.hud._shown, true, "counter shown again")
+end
+
+do -- settings panel: modern Settings API
+    local ns = fresh({ settingsApi = true })
+    truthy(S.registeredPanel, "panel registered with the Settings API")
+    truthy(S.registeredCategory, "category added to the AddOns settings")
+    eq(ns.menuMode, "settings", "menu mode recorded")
+    ns.HandleCommand("")
+    eq(S.openedCategory, 42, "/coffers opens the settings category")
+    eq(_G.GuildCoffersWindow, nil, "no stray window when the settings menu works")
+    ns.HandleCommand("debug")
+    truthy(printedAny("Menu entry: settings"), "debug reports the menu mode")
+end
+
+do -- settings panel: old interface options API
+    local ns = fresh({ legacyApi = true })
+    eq(S.legacyAdded and S.legacyAdded.name, "Guild Coffers", "panel added to the old options")
+    ns.HandleCommand("")
+    eq(S.legacyOpened, 2, "old options opened (called twice, as that client needs)")
+end
+
+do -- no settings menu found: falls back to a standalone window
+    local ns = fresh()
+    eq(ns.menuMode, nil, "no menu entry")
+    ns.HandleCommand("")
+    truthy(_G.GuildCoffersWindow, "standalone window used as the fallback")
+end
+
+do -- one failing piece is reported and does not stop the rest
+    local ns = fresh({ badTemplate = "UICheckButtonTemplate" })
+    truthy(printedAny("interface failed"), "the failing part is reported")
+    ns.HandleCommand("")                      -- must not throw
+    gain(100 * GOLD)
+    truthy(ns.hud.line1._text:find("10g", 1, true), "counter still works when the panel fails")
+    ns.HandleCommand("rate 15")
+    eq(ns.db.rate, 15, "text commands still work")
 end
 
 do -- coin text

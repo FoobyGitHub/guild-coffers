@@ -8,7 +8,7 @@ ns.frame = CreateFrame("Frame")
 -- Forever inherits retail's "secret value" restrictions; guard where it exists.
 ns.isSecret = issecretvalue or function() return false end
 
-local DEFAULTS = { rate = 10, enabled = true }
+local DEFAULTS = { rate = 10, enabled = true, showHud = true, hudLocked = false }
 
 ---------------------------------------------------------------------------
 -- Helpers
@@ -90,7 +90,7 @@ function ns.Char()
     local key = ns.CharKey()
     local c = ns.db.chars[key]
     if not c then
-        c = { owed = 0, donated = 0, deposits = 0 }
+        c = { owed = 0, collected = 0, donated = 0, deposits = 0 }
         ns.db.chars[key] = c
     end
     return c
@@ -113,9 +113,9 @@ end
 
 local function PrintStatus()
     local c = ns.Char()
-    ns.Print(string.format("tax %d%% (%s). Owed now: %s. Total donated: %s.",
+    ns.Print(string.format("tax %d%% (%s). Collected since last deposit: %s. Keep aside: %s. Total donated: %s.",
         ns.db.rate, ns.db.enabled and "on" or "off",
-        ns.CoinText(c.owed), ns.CoinText(c.donated)))
+        ns.CoinText(c.collected or 0), ns.CoinText(c.owed), ns.CoinText(c.donated)))
     if c.lastDonated and date then
         ns.Print("Last donation: " .. date("%Y-%m-%d %H:%M", c.lastDonated))
     end
@@ -123,7 +123,9 @@ end
 
 local function PrintHelp()
     ns.Print("commands:")
-    print("  /coffers - open the window")
+    print("  /coffers - open the settings (AddOns menu)")
+    print("  /coffers hud - show or hide the on-screen tax counter")
+    print("  /coffers window - open the settings in a standalone window")
     print("  /coffers rate <0-100> - set your tax percentage")
     print("  /coffers on | off - turn tracking on or off")
     print("  /coffers status - show what you owe and have donated")
@@ -145,6 +147,9 @@ local function PrintDebug()
         print("    GuildBanker: " .. yn(PI.GuildBanker) .. ", Banker: " .. yn(PI.Banker)
             .. ", AccountBanker: " .. yn(PI.AccountBanker) .. ", Trade: " .. yn(PI.Trade))
     end
+    print("  Settings.RegisterCanvasLayoutCategory: " .. yn(Settings and Settings.RegisterCanvasLayoutCategory))
+    print("  InterfaceOptions_AddCategory: " .. yn(InterfaceOptions_AddCategory))
+    print("  Menu entry: " .. (ns.menuMode or "none (standalone window is used)"))
     local unknown = {}
     for event in pairs(ns.unknownEvents or {}) do unknown[#unknown + 1] = event end
     table.sort(unknown)
@@ -180,6 +185,12 @@ function ns.HandleCommand(input)
         ns.TryDeposit(true)
     elseif cmd == "watch" then
         ns.StartWatch()
+    elseif cmd == "hud" then
+        ns.db.showHud = not ns.db.showHud
+        ns.Print("tax counter " .. (ns.db.showHud and "shown." or "hidden."))
+        if ns.RefreshUI then ns.RefreshUI() end
+    elseif cmd == "window" then
+        if ns.ShowWindow then ns.ShowWindow() end
     else
         PrintHelp()
     end

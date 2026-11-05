@@ -65,6 +65,7 @@ local function RecordDeposit(amount)
     c.deposits = (c.deposits or 0) + 1
     c.lastDonated = time()
     c.owed = math.max(0, c.owed - amount)
+    if c.owed < 1 then c.collected = 0 end   -- fully settled: start counting afresh
     local self_made = pending ~= nil
     pending = nil
     local msg = (self_made and "deposited " or "credited your manual deposit of ")
@@ -127,6 +128,7 @@ local function OnMoneyChanged()
         if isOpen("guildbank") or isOpen("bank") or isOpen("trade") then return end
         local c = ns.Char()
         c.owed = c.owed + delta * ns.db.rate / 100
+        c.collected = (c.collected or 0) + delta
         if ns.RefreshUI then ns.RefreshUI() end
     elseif open.guildbank then
         -- Gold out while the guild bank is open is a deposit (ours or the player's own).

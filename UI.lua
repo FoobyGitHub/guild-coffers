@@ -1,8 +1,27 @@
--- Guild Coffers: settings window. Built on first use so a template problem on a
--- new client cannot stop the addon loading; the slash commands always work.
+-- Guild Coffers: interface.
+--  * a panel in the game's AddOns settings (with fallbacks if that API differs on this client)
+--  * an always-visible counter showing how much gold to keep aside
+--  * a standalone window (/coffers window) as a safety net
+-- Every piece is built inside pcall so one failing template cannot stop the others,
+-- and the slash commands always work.
 local _, ns = ...
 
-local frame
+local panels = {}   -- every built settings panel, so one refresh updates them all
+local category, legacyPanel, window, hud
+local reported = {}
+
+local function Report(where, err)
+    if reported[where] then return end
+    reported[where] = true
+    ns.Print("part of the interface failed (" .. where .. "): " .. tostring(err)
+        .. " - please report it with the output of /coffers debug.")
+end
+
+local function Safe(where, fn, ...)
+    local ok, err = pcall(fn, ...)
+    if not ok then Report(where, err) end
+    return ok
+end
 
 local function Label(parent, template, point, x, y, text)
     local fs = parent:CreateFontString(nil, "OVERLAY", template)
@@ -11,92 +30,269 @@ local function Label(parent, template, point, x, y, text)
     return fs
 end
 
-local function Refresh()
-    if not frame or not frame:IsShown() or not ns.db then return end
-    local c = ns.Char()
-    frame.rateBox:SetText(tostring(ns.db.rate))
-    frame.enabled:SetChecked(ns.db.enabled)
-    frame.owed:SetText("Owed now: " .. ns.CoinText(c.owed))
-    frame.donated:SetText("Total donated: " .. ns.CoinText(c.donated))
-    local last = "never"
-    if c.lastDonated and date then last = date("%Y-%m-%d %H:%M", c.lastDonated) end
-    frame.last:SetText("Last donation: " .. last)
-end
-ns.RefreshUI = Refresh
+---------------------------------------------------------------------------
+-- Refresh
+---------------------------------------------------------------------------
 
-local function ApplyRateBox()
-    if ns.SetRate(frame.rateBox:GetText()) then
-        Refresh()
-    else
-        frame.rateBox:SetText(tostring(ns.db.rate))
+local function RefreshHUD()
+    if not hud or not ns.db then return end
+    if not ns.db.showHud then
+        hud:Hide()
+        return
     end
+    local c = ns.Char()
+    if ns.db.enabled then
+        hud.line1:SetText("Guild tax to keep: |cffffd100" .. ns.CoinText(c.owed) .. "|r")
+        hud.line2:SetText(ns.CoinText(c.collected or 0) .. " collected at " .. ns.db.rate .. "%")
+    else
+        hud.line1:SetText("Guild tax: tracking off")
+        hud.line2:SetText("type /coffers to turn it on")
+    end
+    local w = math.max(tonumber(hud.line1:GetStringWidth()) or 0,
+        tonumber(hud.line2:GetStringWidth()) or 0)
+    hud:SetWidth(math.max(170, w + 16))
+    hud:Show()
 end
 
-local function Build()
-    frame = CreateFrame("Frame", "GuildCoffersFrame", UIParent, "BasicFrameTemplateWithInset")
-    frame:SetSize(300, 230)
-    frame:SetPoint("CENTER")
-    frame:SetMovable(true)
-    frame:EnableMouse(true)
-    frame:RegisterForDrag("LeftButton")
-    frame:SetScript("OnDragStart", frame.StartMoving)
-    frame:SetScript("OnDragStop", frame.StopMovingOrSizing)
-    frame:SetScript("OnShow", Refresh)
-    tinsert(UISpecialFrames, "GuildCoffersFrame")
-
-    Label(frame, "GameFontNormal", "TOP", 0, -6, "Guild Coffers")
-
-    frame.enabled = CreateFrame("CheckButton", nil, frame, "UICheckButtonTemplate")
-    frame.enabled:SetPoint("TOPLEFT", 16, -34)
-    frame.enabled:SetScript("OnClick", function(self)
-        ns.db.enabled = self:GetChecked() and true or false
+local function RefreshPanel(p)
+    local c = ns.Char()
+    Safe("rate box", function()
+        if not p.rateBox:HasFocus() then p.rateBox:SetText(tostring(ns.db.rate)) end
     end)
-    Label(frame, "GameFontHighlight", "TOPLEFT", 46, -41, "Track gold and tax it")
+    Safe("tracking box", function() p.enabled:SetChecked(ns.db.enabled and true or false) end)
+    Safe("counter box", function() p.showHud:SetChecked(ns.db.showHud and true or false) end)
+    Safe("lock box", function() p.lock:SetChecked(ns.db.hudLocked and true or false) end)
+    Safe("status text", function()
+        p.owed:SetText("Keep aside now: " .. ns.CoinText(c.owed))
+        p.collected:SetText("Collected since last deposit: " .. ns.CoinText(c.collected or 0))
+        p.donated:SetText("Total donated: " .. ns.CoinText(c.donated))
+        local last = "never"
+        if c.lastDonated and date then last = date("%Y-%m-%d %H:%M", c.lastDonated) end
+        p.last:SetText("Last donation: " .. last)
+    end)
+end
 
-    Label(frame, "GameFontHighlight", "TOPLEFT", 20, -76, "Tax rate (%)")
+local function RefreshPanels()
+    if not ns.db then return end
+    for _, p in ipairs(panels) do RefreshPanel(p) end
+end
 
-    frame.rateBox = CreateFrame("EditBox", nil, frame, "InputBoxTemplate")
-    frame.rateBox:SetSize(40, 20)
-    frame.rateBox:SetPoint("TOPLEFT", 130, -72)
-    frame.rateBox:SetAutoFocus(false)
-    frame.rateBox:SetNumeric(true)
-    frame.rateBox:SetMaxLetters(3)
-    frame.rateBox:SetScript("OnEnterPressed", function(self) ApplyRateBox() self:ClearFocus() end)
-    frame.rateBox:SetScript("OnEditFocusLost", ApplyRateBox)
+function ns.RefreshUI()
+    Safe("counter", RefreshHUD)
+    RefreshPanels()
+end
 
-    local minus = CreateFrame("Button", nil, frame, "UIPanelButtonTemplate")
+---------------------------------------------------------------------------
+-- Settings panel
+---------------------------------------------------------------------------
+
+local function Check(parent, y, text, onClick)
+    local cb = CreateFrame("CheckButton", nil, parent, "UICheckButtonTemplate")
+    cb:SetPoint("TOPLEFT", 14, y)
+    cb:SetScript("OnClick", function(self) onClick(self:GetChecked() and true or false) end)
+    Label(parent, "GameFontHighlight", "TOPLEFT", 44, y - 7, text)
+    return cb
+end
+
+local function BuildPanel(parent)
+    local p = CreateFrame("Frame", nil, parent)
+
+    Label(p, "GameFontNormalLarge", "TOPLEFT", 16, -16, "Guild Coffers")
+    local sub = Label(p, "GameFontHighlightSmall", "TOPLEFT", 16, -42,
+        "A share of the gold you receive is set aside and donated to the guild bank when you open it.")
+    sub:SetWidth(440)
+    sub:SetJustifyH("LEFT")
+
+    p.enabled = Check(p, -72, "Track gold and tax it", function(v)
+        ns.db.enabled = v
+        ns.RefreshUI()
+    end)
+    p.showHud = Check(p, -100, "Show the tax counter on screen", function(v)
+        ns.db.showHud = v
+        ns.RefreshUI()
+    end)
+    p.lock = Check(p, -128, "Lock the counter's position", function(v)
+        ns.db.hudLocked = v
+    end)
+
+    Label(p, "GameFontHighlight", "TOPLEFT", 20, -170, "Tax rate (%)")
+    p.rateBox = CreateFrame("EditBox", nil, p, "InputBoxTemplate")
+    p.rateBox:SetSize(40, 20)
+    p.rateBox:SetPoint("TOPLEFT", 130, -166)
+    p.rateBox:SetAutoFocus(false)
+    p.rateBox:SetNumeric(true)
+    p.rateBox:SetMaxLetters(3)
+    local function ApplyRate()
+        if not ns.SetRate(p.rateBox:GetText()) then
+            p.rateBox:SetText(tostring(ns.db.rate))
+        end
+    end
+    p.rateBox:SetScript("OnEnterPressed", function(self) ApplyRate() self:ClearFocus() end)
+    p.rateBox:SetScript("OnEditFocusLost", ApplyRate)
+
+    local minus = CreateFrame("Button", nil, p, "UIPanelButtonTemplate")
     minus:SetSize(24, 22)
-    minus:SetPoint("LEFT", frame.rateBox, "RIGHT", 8, 0)
+    minus:SetPoint("LEFT", p.rateBox, "RIGHT", 8, 0)
     minus:SetText("-")
     minus:SetScript("OnClick", function() ns.SetRate((ns.db.rate or 0) - 1) end)
 
-    local plus = CreateFrame("Button", nil, frame, "UIPanelButtonTemplate")
+    local plus = CreateFrame("Button", nil, p, "UIPanelButtonTemplate")
     plus:SetSize(24, 22)
     plus:SetPoint("LEFT", minus, "RIGHT", 4, 0)
     plus:SetText("+")
     plus:SetScript("OnClick", function() ns.SetRate((ns.db.rate or 0) + 1) end)
 
-    frame.owed = Label(frame, "GameFontHighlight", "TOPLEFT", 20, -112)
-    frame.donated = Label(frame, "GameFontHighlight", "TOPLEFT", 20, -134)
-    frame.last = Label(frame, "GameFontHighlight", "TOPLEFT", 20, -156)
+    p.owed = Label(p, "GameFontHighlight", "TOPLEFT", 20, -206)
+    p.collected = Label(p, "GameFontHighlight", "TOPLEFT", 20, -228)
+    p.donated = Label(p, "GameFontHighlight", "TOPLEFT", 20, -250)
+    p.last = Label(p, "GameFontHighlight", "TOPLEFT", 20, -272)
 
-    local deposit = CreateFrame("Button", nil, frame, "UIPanelButtonTemplate")
+    local deposit = CreateFrame("Button", nil, p, "UIPanelButtonTemplate")
     deposit:SetSize(120, 24)
-    deposit:SetPoint("BOTTOM", 0, 14)
+    deposit:SetPoint("TOPLEFT", 20, -306)
     deposit:SetText("Deposit now")
     deposit:SetScript("OnClick", function() ns.TryDeposit(true) end)
+
+    return p
 end
 
-function ns.ToggleUI()
-    if not frame then
-        local ok, err = pcall(Build)
-        if not ok then
-            frame = nil
-            ns.Print("could not build the window (" .. tostring(err) .. "). Use /coffers help for the text commands.")
-            return
-        end
-        frame:Show()
+local function RegisterPanel()
+    local ok, p = pcall(BuildPanel, UIParent)
+    if not ok then
+        Report("settings panel", p)
         return
     end
-    if frame:IsShown() then frame:Hide() else frame:Show() end
+    if Settings and Settings.RegisterCanvasLayoutCategory and Settings.RegisterAddOnCategory then
+        local ok2, cat = pcall(Settings.RegisterCanvasLayoutCategory, p, "Guild Coffers")
+        if ok2 and cat then
+            pcall(Settings.RegisterAddOnCategory, cat)
+            category = cat
+            panels[#panels + 1] = p
+            ns.menuMode = "settings"
+            return
+        end
+    end
+    if InterfaceOptions_AddCategory then
+        p.name = "Guild Coffers"
+        if pcall(InterfaceOptions_AddCategory, p) then
+            legacyPanel = p
+            panels[#panels + 1] = p
+            ns.menuMode = "legacy"
+        end
+    end
 end
+
+---------------------------------------------------------------------------
+-- Standalone window (safety net: /coffers window, or when no settings menu is found)
+---------------------------------------------------------------------------
+
+local function BuildWindow()
+    local w = CreateFrame("Frame", "GuildCoffersWindow", UIParent, "BasicFrameTemplateWithInset")
+    w:SetSize(520, 350)
+    w:SetPoint("CENTER")
+    w:SetMovable(true)
+    w:EnableMouse(true)
+    w:RegisterForDrag("LeftButton")
+    w:SetScript("OnDragStart", w.StartMoving)
+    w:SetScript("OnDragStop", w.StopMovingOrSizing)
+    tinsert(UISpecialFrames, "GuildCoffersWindow")
+    local p = BuildPanel(w)
+    p:SetPoint("TOPLEFT", w, "TOPLEFT", 6, -26)
+    p:SetPoint("BOTTOMRIGHT", w, "BOTTOMRIGHT", -6, 6)
+    panels[#panels + 1] = p
+    return w
+end
+
+function ns.ShowWindow()
+    if not window then
+        local ok, result = pcall(BuildWindow)
+        if not ok then
+            Report("window", result)
+            ns.Print("the window could not be built. The text commands still work: /coffers help")
+            return
+        end
+        window = result
+        window:Show()
+        RefreshPanels()
+        return
+    end
+    if window:IsShown() then
+        window:Hide()
+    else
+        window:Show()
+        RefreshPanels()
+    end
+end
+
+-- Open the settings entry if there is one, otherwise the standalone window.
+function ns.ToggleUI()
+    if category and Settings and Settings.OpenToCategory then
+        local id = (category.GetID and category:GetID()) or category.ID
+        if pcall(Settings.OpenToCategory, id) then return end
+    elseif legacyPanel and InterfaceOptionsFrame_OpenToCategory then
+        -- the old interface options frame needs this called twice to land on the right page
+        pcall(InterfaceOptionsFrame_OpenToCategory, legacyPanel)
+        pcall(InterfaceOptionsFrame_OpenToCategory, legacyPanel)
+        return
+    end
+    ns.ShowWindow()
+end
+
+---------------------------------------------------------------------------
+-- On-screen counter
+---------------------------------------------------------------------------
+
+local function BuildHUD()
+    hud = CreateFrame("Frame", "GuildCoffersHUD", UIParent)
+    ns.hud = hud
+    hud:SetSize(190, 40)
+    hud:SetFrameStrata("MEDIUM")
+    hud:SetClampedToScreen(true)
+    hud:SetMovable(true)
+    hud:EnableMouse(true)
+    hud:RegisterForDrag("LeftButton")
+
+    local bg = hud:CreateTexture(nil, "BACKGROUND")
+    bg:SetAllPoints()
+    pcall(bg.SetColorTexture, bg, 0, 0, 0, 0.55)
+
+    hud.line1 = Label(hud, "GameFontNormal", "TOPLEFT", 8, -6)
+    hud.line2 = Label(hud, "GameFontHighlightSmall", "TOPLEFT", 8, -23)
+
+    local pos = ns.db.hudPos
+    hud:ClearAllPoints()
+    if pos then
+        hud:SetPoint(pos[1], UIParent, pos[2], pos[3], pos[4])
+    else
+        hud:SetPoint("TOP", UIParent, "TOP", 0, -90)
+    end
+
+    hud:SetScript("OnDragStart", function(self)
+        if not ns.db.hudLocked then self:StartMoving() end
+    end)
+    hud:SetScript("OnDragStop", function(self)
+        self:StopMovingOrSizing()
+        local point, _, relPoint, x, y = self:GetPoint()
+        if point then ns.db.hudPos = { point, relPoint, x, y } end
+    end)
+    hud:SetScript("OnMouseUp", function(_, button)
+        if button == "RightButton" then ns.ToggleUI() end
+    end)
+    hud:SetScript("OnEnter", function(self)
+        if not GameTooltip then return end
+        GameTooltip:SetOwner(self, "ANCHOR_BOTTOM")
+        GameTooltip:AddLine("Guild Coffers")
+        GameTooltip:AddLine("Right-click: open settings", 1, 1, 1)
+        GameTooltip:AddLine("Drag to move (unless locked)", 1, 1, 1)
+        GameTooltip:Show()
+    end)
+    hud:SetScript("OnLeave", function()
+        if GameTooltip then GameTooltip:Hide() end
+    end)
+end
+
+ns.On("PLAYER_LOGIN", function()
+    Safe("settings panel", RegisterPanel)
+    Safe("counter", BuildHUD)
+    ns.RefreshUI()
+end)

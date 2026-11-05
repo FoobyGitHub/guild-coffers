@@ -10,13 +10,16 @@ A passive guild tax addon for **World of Warcraft: Forever**. You choose a perce
 - Tracking of gold received: loot, quests, vendor sales and mail. Trades and bank or guild bank withdrawals are not counted.
 - Automatic deposit shortly after you open the guild bank. The addon confirms the gold really left, and warns you if the client blocks the deposit.
 - Manual deposits made while the guild bank is open are credited too.
-- Window (`/coffers`) showing what you owe, total donated and last donation.
+- Settings panel in the game's AddOns settings (`/coffers`), plus an on-screen counter showing the gold to keep aside and the amount collected since your last deposit.
+- Tracking is on and the rate is 10% by default.
 
 ## Commands
 
 | Command | What it does |
 |---|---|
-| `/coffers` | Open or close the window |
+| `/coffers` | Open the settings (AddOns menu) |
+| `/coffers hud` | Show or hide the on-screen tax counter |
+| `/coffers window` | Open the settings in a standalone window |
 | `/coffers rate <0-100>` | Set your tax percentage |
 | `/coffers on` / `off` | Turn tracking on or off |
 | `/coffers status` | Show what you owe and have donated |
