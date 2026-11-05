@@ -53,6 +53,14 @@ Open them with `/coffers`, or ESC → Options → AddOns → Guild Coffers.
 | `/coffers deposit` | Deposit now (guild bank must be open) |
 | `/coffers debug` | Compatibility report, handy for bug reports |
 
+## Planned
+
+Waiting until a guild exists to test against:
+
+- **Donation history:** track deposits and withdrawals from the guild bank log, shared between guildmates, so the leaderboard can show who pays in and who takes out.
+- **Promotion helper (officers only):** a "Ready for promotion" list of members whose verified deposits reach an amount you set in the settings (0 means any verified donation). An officer promotes them with one click in the addon. Nothing is promoted automatically, and what each rank can do stays in Blizzard's guild settings.
+- **Roster view:** guildmates with no donations, so the leaderboard shows who has not paid in as well.
+
 ## Installing and reporting problems
 
 Install from CurseForge (choose the **Forever** version), or copy this folder into your `Interface/AddOns/GuildCoffers/` folder. If something goes wrong, please open an issue with any error text and the output of `/coffers debug`.
