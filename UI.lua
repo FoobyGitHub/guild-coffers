@@ -62,6 +62,7 @@ local function RefreshPanel(p)
     Safe("tracking box", function() p.enabled:SetChecked(ns.db.enabled and true or false) end)
     Safe("counter box", function() p.showHud:SetChecked(ns.db.showHud and true or false) end)
     Safe("lock box", function() p.lock:SetChecked(ns.db.hudLocked and true or false) end)
+    Safe("reserve text", function() p.reserveText:SetText(ns.ReserveText(ns.db.reserve)) end)
     Safe("status text", function()
         p.owed:SetText("Keep aside now: " .. ns.OwedText(c.owed))
         p.collected:SetText("Collected since last deposit: " .. ns.CoinText(c.collected or 0))
@@ -141,18 +142,73 @@ local function BuildPanel(parent)
     p.plus5 = RateButton("+5", 32, 5)
     p.plus5:SetPoint("LEFT", p.plus, "RIGHT", 4, 0)
 
-    p.owed = Label(p, "GameFontHighlight", "TOPLEFT", 20, -234)
-    p.collected = Label(p, "GameFontHighlight", "TOPLEFT", 20, -256)
-    p.donated = Label(p, "GameFontHighlight", "TOPLEFT", 20, -278)
-    p.last = Label(p, "GameFontHighlight", "TOPLEFT", 20, -300)
+    -- Minimum to keep: a deposit never takes you below this. Buttons for quick changes;
+    -- /coffers reserve 5g 50s sets an exact amount.
+    Label(p, "GameFontHighlight", "TOPLEFT", 20, -234, "Always keep")
+    local function ReserveButton(text, delta)
+        local b = CreateFrame("Button", nil, p, "UIPanelButtonTemplate")
+        b:SetSize(42, 22)
+        b:SetText(text)
+        b:SetScript("OnClick", function() ns.SetReserve((ns.db.reserve or 0) + delta) end)
+        return b
+    end
+    local r1 = ReserveButton("-100g", -1000000)
+    r1:SetPoint("TOPLEFT", 130, -230)
+    local r2 = ReserveButton("-10g", -100000)
+    r2:SetPoint("LEFT", r1, "RIGHT", 2, 0)
+    local r3 = ReserveButton("-1g", -10000)
+    r3:SetPoint("LEFT", r2, "RIGHT", 2, 0)
+    p.reserveText = p:CreateFontString(nil, "OVERLAY", "GameFontNormalLarge")
+    p.reserveText:SetPoint("LEFT", r3, "RIGHT", 6, 0)
+    p.reserveText:SetWidth(90)
+    p.reserveText:SetJustifyH("CENTER")
+    local r4 = ReserveButton("+1g", 10000)
+    r4:SetPoint("LEFT", p.reserveText, "RIGHT", 6, 0)
+    local r5 = ReserveButton("+10g", 100000)
+    r5:SetPoint("LEFT", r4, "RIGHT", 2, 0)
+    local r6 = ReserveButton("+100g", 1000000)
+    r6:SetPoint("LEFT", r5, "RIGHT", 2, 0)
+    local hint = Label(p, "GameFontHighlightSmall", "TOPLEFT", 130, -256,
+        "Exact amount: /coffers reserve 5g 50s")
+    hint:SetTextColor(0.7, 0.7, 0.7)
+
+    p.owed = Label(p, "GameFontHighlight", "TOPLEFT", 20, -284)
+    p.collected = Label(p, "GameFontHighlight", "TOPLEFT", 20, -306)
+    p.donated = Label(p, "GameFontHighlight", "TOPLEFT", 20, -328)
+    p.last = Label(p, "GameFontHighlight", "TOPLEFT", 20, -350)
 
     local deposit = CreateFrame("Button", nil, p, "UIPanelButtonTemplate")
     deposit:SetSize(120, 24)
-    deposit:SetPoint("TOPLEFT", 20, -334)
+    deposit:SetPoint("TOPLEFT", 20, -384)
     deposit:SetText("Deposit now")
     deposit:SetScript("OnClick", function() ns.TryDeposit(true) end)
 
-    p.version = Label(p, "GameFontHighlightSmall", "TOPLEFT", 20, -368, "Version " .. ns.GetVersion())
+    -- Reset needs a second click within a few seconds, so it cannot be hit by accident.
+    local reset = CreateFrame("Button", nil, p, "UIPanelButtonTemplate")
+    reset:SetSize(150, 24)
+    reset:SetPoint("LEFT", deposit, "RIGHT", 10, 0)
+    reset:SetText("Reset amount owed")
+    local armed
+    reset:SetScript("OnClick", function()
+        if armed then
+            armed = nil
+            reset:SetText("Reset amount owed")
+            ns.ResetOwed()
+            return
+        end
+        local token = {}
+        armed = token
+        reset:SetText("Click again to confirm")
+        C_Timer.After(5, function()
+            if armed == token then
+                armed = nil
+                reset:SetText("Reset amount owed")
+            end
+        end)
+    end)
+    p.reset = reset
+
+    p.version = Label(p, "GameFontHighlightSmall", "TOPLEFT", 20, -418, "Version " .. ns.GetVersion())
 
     -- Refresh whenever the panel is shown, so nothing depends on when it was built.
     p:SetScript("OnShow", function() RefreshPanel(p) end)
@@ -192,7 +248,7 @@ end
 
 local function BuildWindow()
     local w = CreateFrame("Frame", "GuildCoffersWindow", UIParent, "BasicFrameTemplateWithInset")
-    w:SetSize(520, 390)
+    w:SetSize(520, 450)
     w:SetPoint("CENTER")
     w:SetMovable(true)
     w:EnableMouse(true)

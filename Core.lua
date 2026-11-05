@@ -8,7 +8,7 @@ ns.frame = CreateFrame("Frame")
 -- Forever inherits retail's "secret value" restrictions; guard where it exists.
 ns.isSecret = issecretvalue or function() return false end
 
-local DEFAULTS = { rate = 10, enabled = true, showHud = true, hudLocked = false, showChat = false }
+local DEFAULTS = { rate = 10, enabled = true, showHud = true, hudLocked = false, showChat = false, reserve = 0 }
 
 ---------------------------------------------------------------------------
 -- Helpers
@@ -44,6 +44,42 @@ end
 function ns.OwedText(copper)
     copper = tonumber(copper) or 0
     if copper > 0 and copper < 1 then return "<1c" end
+    return ns.CoinText(copper)
+end
+
+-- Read an amount typed as "100g", "50s", "3c", "1g 50s 20c" or a bare number (taken as gold).
+-- Returns copper, or nil if it cannot be understood.
+local MULT = { g = 10000, s = 100, c = 1 }
+function ns.ParseMoney(text)
+    local input = tostring(text or ""):lower()
+    local tokens = {}
+    for t in input:gmatch("%S+") do tokens[#tokens + 1] = t end
+    if #tokens == 0 then return nil end
+    if #tokens == 1 and (tokens[1] == "off" or tokens[1] == "none") then return 0 end
+    local total = 0
+    for _, tok in ipairs(tokens) do
+        local rest = tok
+        local first = true
+        while rest ~= "" do
+            local num, unit, after = rest:match("^(%d+%.?%d*)([gsc]?)(.*)$")
+            if not num then return nil end
+            if unit == "" then
+                -- a bare number is gold, but only when it is the whole input
+                if not first or after ~= "" or #tokens > 1 then return nil end
+                unit = "g"
+            end
+            total = total + tonumber(num) * MULT[unit]
+            rest = after
+            first = false
+        end
+    end
+    return math.floor(total + 0.5)
+end
+
+-- The reserve as text: "none" or e.g. "100g".
+function ns.ReserveText(copper)
+    copper = tonumber(copper) or 0
+    if copper <= 0 then return "none" end
     return ns.CoinText(copper)
 end
 
@@ -117,15 +153,40 @@ function ns.SetRate(value)
     return true
 end
 
+local MAX_RESERVE = 1000000 * 10000   -- 1,000,000 gold
+
+-- The minimum you want left in your pocket after a deposit, in copper.
+function ns.SetReserve(copper)
+    local n = tonumber(copper)
+    if not n then return false end
+    n = math.floor(n)
+    if n < 0 then n = 0 end
+    if n > MAX_RESERVE then n = MAX_RESERVE end
+    ns.db.reserve = n
+    if ns.RefreshUI then ns.RefreshUI() end
+    return true
+end
+
+-- Wipe what is currently owed (and the "collected" count it was worked out from).
+-- Lifetime donation totals are kept.
+function ns.ResetOwed()
+    local c = ns.Char()
+    c.owed = 0
+    c.collected = 0
+    ns.Print("amount owed reset to 0.")
+    if ns.RefreshUI then ns.RefreshUI() end
+end
+
 ---------------------------------------------------------------------------
 -- Slash commands
 ---------------------------------------------------------------------------
 
 local function PrintStatus()
     local c = ns.Char()
-    ns.Print(string.format("tax %d%% (%s). Collected since last deposit: %s. Keep aside: %s. Total donated: %s.",
+    ns.Print(string.format("tax %d%% (%s). Collected since last deposit: %s. Keep aside: %s. Total donated: %s. Always keep: %s.",
         ns.db.rate, ns.db.enabled and "on" or "off",
-        ns.CoinText(c.collected or 0), ns.OwedText(c.owed), ns.CoinText(c.donated)))
+        ns.CoinText(c.collected or 0), ns.OwedText(c.owed), ns.CoinText(c.donated),
+        ns.ReserveText(ns.db.reserve)))
     if c.lastDonated and date then
         ns.Print("Last donation: " .. date("%Y-%m-%d %H:%M", c.lastDonated))
     end
@@ -138,6 +199,8 @@ local function PrintHelp()
     print("  /coffers chat - show or hide a chat summary of the tax on your gains")
     print("  /coffers window - open the settings in a standalone window")
     print("  /coffers rate <0-100> - set your tax percentage")
+    print("  /coffers reserve <amount> - gold to always keep, e.g. 100g or 5g 50s (0 = none)")
+    print("  /coffers reset - set the amount owed back to zero")
     print("  /coffers on | off - turn tracking on or off")
     print("  /coffers status - show what you owe and have donated")
     print("  /coffers deposit - deposit now (guild bank must be open)")
@@ -187,6 +250,16 @@ function ns.HandleCommand(input)
         else
             ns.Print("usage: /coffers rate <0-100>")
         end
+    elseif cmd == "reserve" then
+        local copper = ns.ParseMoney(rest)
+        if copper and ns.SetReserve(copper) then
+            ns.Print("always keeping at least " .. ns.ReserveText(ns.db.reserve) .. " when depositing.")
+        else
+            ns.Print("usage: /coffers reserve <amount>, e.g. 100g or 5g 50s 20c (0 for none). Current: "
+                .. ns.ReserveText(ns.db.reserve))
+        end
+    elseif cmd == "reset" then
+        ns.ResetOwed()
     elseif cmd == "on" or cmd == "off" then
         ns.db.enabled = (cmd == "on")
         ns.Print("tracking turned " .. cmd .. ".")

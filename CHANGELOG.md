@@ -5,6 +5,8 @@ All notable changes to Guild Coffers are recorded here.
 ## [Unreleased] (alpha)
 
 ### Added
+- "Always keep" minimum: a deposit never takes you below an amount you choose (gold, silver or copper), set with buttons or `/coffers reserve 5g 50s`. Anything held back stays owed. Off by default.
+- "Reset amount owed" button (two clicks to confirm) and `/coffers reset`; lifetime donated is kept.
 - Gold tracking: your tax percentage of gold received (loot, quests, vendor sales, mail) is set aside. Gold from trades and from bank or guild bank withdrawals is not counted.
 - Your own tax rate (default 10%), set in the settings window or with `/coffers rate <0-100>`.
 - Automatic deposit into the guild bank shortly after you open it, confirmed by watching the gold actually leave.

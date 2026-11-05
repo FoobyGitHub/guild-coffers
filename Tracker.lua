@@ -89,9 +89,15 @@ function ns.TryDeposit(manual)
     local c = ns.Char()
     local money = GetMoney()
     if ns.isSecret(money) then return end
-    local amount = math.floor(math.min(c.owed, money))
+    -- Never take the player below their chosen minimum.
+    local reserve = ns.db.reserve or 0
+    local amount = math.floor(math.min(c.owed, money - reserve))
     if amount < 1 then
-        if manual then
+        if reserve > 0 and c.owed >= 1 and money - reserve < 1 then
+            -- Owed gold is waiting only because of the reserve: say so, even on the automatic path.
+            ns.Print("keeping your " .. ns.ReserveText(reserve) .. " reserve, so nothing deposited. "
+                .. "Still owed: " .. ns.CoinText(c.owed) .. ".")
+        elseif manual then
             if c.owed > 0 then
                 ns.Print("less than 1 copper owed so far. It builds up as you earn more.")
             else

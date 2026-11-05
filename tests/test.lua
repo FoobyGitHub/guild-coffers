@@ -555,5 +555,95 @@ do -- coin text
     eq(ns.CoinText(10 * GOLD), "10g", "round gold")
 end
 
+do -- parsing amounts
+    local ns = fresh()
+    eq(ns.ParseMoney("100g"), 100 * GOLD, "100g")
+    eq(ns.ParseMoney("5g 50s"), 5 * GOLD + 5000, "5g 50s")
+    eq(ns.ParseMoney("1G20S3C"), GOLD + 2000 + 3, "mixed case, no spaces")
+    eq(ns.ParseMoney("50s"), 5000, "silver only")
+    eq(ns.ParseMoney("7c"), 7, "copper only")
+    eq(ns.ParseMoney("100"), 100 * GOLD, "a bare number is gold")
+    eq(ns.ParseMoney("1.5g"), 15000, "decimal gold")
+    eq(ns.ParseMoney("0"), 0, "zero")
+    eq(ns.ParseMoney("off"), 0, "off means none")
+    eq(ns.ParseMoney("abc"), nil, "words rejected")
+    eq(ns.ParseMoney(""), nil, "empty rejected")
+    eq(ns.ParseMoney("5 50s"), nil, "bare number mixed with units rejected")
+    eq(ns.ParseMoney("-5g"), nil, "negative rejected")
+end
+
+do -- reserve: a deposit never takes you below the minimum
+    local ns = fresh()                       -- starts with 50g
+    ns.HandleCommand("reserve 100g")
+    eq(ns.db.reserve, 100 * GOLD, "reserve set from the command")
+    ns.Char().owed = 10 * GOLD
+    S.fire("GUILDBANKFRAME_OPENED"); advance(1)
+    eq(#S.deposits, 0, "nothing deposited while below the reserve")
+    truthy(printedAny("keeping your 100g reserve"), "player told why nothing was deposited")
+    eq(ns.Char().owed, 10 * GOLD, "owed gold stays owed")
+    S.fire("GUILDBANKFRAME_CLOSED")
+end
+
+do -- reserve: partial deposit down to the minimum, the rest stays owed
+    local ns = fresh()                       -- 50g
+    ns.db.enabled = false; S.money = 105 * GOLD; S.fire("PLAYER_MONEY"); ns.db.enabled = true
+    ns.HandleCommand("reserve 100g")
+    ns.Char().owed = 10 * GOLD
+    S.fire("GUILDBANKFRAME_OPENED"); advance(1)
+    eq(S.deposits[1], 5 * GOLD, "only the 5g above the reserve is deposited")
+    eq(S.money, 100 * GOLD, "player keeps exactly the reserve")
+    eq(math.floor(ns.Char().owed), 5 * GOLD, "the remainder is still owed")
+    S.fire("GUILDBANKFRAME_CLOSED")
+end
+
+do -- reserve: no effect when set to none, and a manual deposit respects it too
+    local ns = fresh()
+    ns.Char().owed = 10 * GOLD
+    S.fire("GUILDBANKFRAME_OPENED"); advance(1)
+    eq(S.deposits[1], 10 * GOLD, "no reserve: full amount deposited")
+    S.fire("GUILDBANKFRAME_CLOSED")
+    local ns2 = fresh()
+    ns2.HandleCommand("reserve 60g")
+    ns2.Char().owed = 10 * GOLD
+    S.fire("GUILDBANKFRAME_OPENED"); advance(1)
+    ns2.TryDeposit(true)
+    eq(#S.deposits, 0, "manual deposit also respects the reserve")
+    ns2.HandleCommand("reserve bad")
+    eq(ns2.db.reserve, 60 * GOLD, "bad reserve ignored")
+    ns2.HandleCommand("reserve 0")
+    eq(ns2.db.reserve, 0, "reserve 0 clears it")
+end
+
+do -- reset button and command
+    local ns = fresh()
+    gain(100 * GOLD)
+    ns.HandleCommand("window")
+    local p = ns.panels[#ns.panels]
+    ns.Char().donated = 3 * GOLD
+    p.reset.scripts.OnClick()
+    truthy(ns.Char().owed > 0, "first click only asks for confirmation")
+    truthy((p.reset._text or ""):find("again", 1, true), "button asks for a second click")
+    advance(6)
+    eq(p.reset._text, "Reset amount owed", "confirmation times out")
+    p.reset.scripts.OnClick(); p.reset.scripts.OnClick()
+    eq(ns.Char().owed, 0, "second click resets what is owed")
+    eq(ns.Char().collected, 0, "collected count reset too")
+    eq(ns.Char().donated, 3 * GOLD, "lifetime donated is kept")
+    gain(10 * GOLD)
+    ns.HandleCommand("reset")
+    eq(ns.Char().owed, 0, "/coffers reset works")
+end
+
+do -- reserve shown in the panel and set with the buttons' underlying call
+    local ns = fresh()
+    ns.HandleCommand("window")
+    local p = ns.panels[#ns.panels]
+    eq(p.reserveText._text, "none", "reserve shows none by default")
+    ns.HandleCommand("reserve 5g 50s")
+    eq(p.reserveText._text, "5g 50s", "panel follows /coffers reserve")
+    ns.SetReserve(-5)
+    eq(ns.db.reserve, 0, "reserve cannot go negative")
+end
+
 real_print(string.format("%d checks passed, %d failed", passed, failures))
 if failures > 0 then error("tests failed") end
