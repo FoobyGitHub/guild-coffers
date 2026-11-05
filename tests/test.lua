@@ -25,6 +25,7 @@ local function newState()
     return {
         now = 0, money = 0, timers = {}, printed = {}, deposits = {},
         depositWorks = true, rejectEvents = {}, secret = false, eventFrame = nil,
+        sent = {}, bankLog = {},
     }
 end
 
@@ -112,6 +113,15 @@ local function installGlobals()
         _G.InterfaceOptions_AddCategory = function(p) S.legacyAdded = p end
         _G.InterfaceOptionsFrame_OpenToCategory = function() S.legacyOpened = (S.legacyOpened or 0) + 1 end
     end
+    _G.IsInGuild = function() return S.inGuild ~= false end
+    _G.C_ChatInfo = {
+        RegisterAddonMessagePrefix = function(prefix) S.prefix = prefix end,
+        SendAddonMessage = function(prefix, msg, channel) S.sent[#S.sent + 1] = { prefix = prefix, msg = msg, channel = channel } end,
+    }
+    _G.QueryGuildBankLog = function(tab) S.logQuery = tab end
+    _G.GetNumGuildBankMoneyTransactions = function() return #S.bankLog end
+    _G.GetGuildBankMoneyTransaction = function(i) return (unpack or table.unpack)(S.bankLog[i]) end
+    _G.GameTooltip = nil
     _G.GuildBankFrame = nil
     if S.guildBankFrame then
         _G.GuildBankFrame = makeFrame()
@@ -138,7 +148,7 @@ local function fresh(opts)
     end
     installGlobals()
     local ns = {}
-    for _, file in ipairs({ "Core.lua", "Tracker.lua", "UI.lua" }) do
+    for _, file in ipairs({ "Core.lua", "Tracker.lua", "Sync.lua", "UI.lua", "Board.lua" }) do
         assert(loadfile(file))("GuildCoffers", ns)
     end
     S.fire("ADDON_LOADED", "GuildCoffers")
@@ -643,6 +653,139 @@ do -- reserve shown in the panel and set with the buttons' underlying call
     eq(p.reserveText._text, "5g 50s", "panel follows /coffers reserve")
     ns.SetReserve(-5)
     eq(ns.db.reserve, 0, "reserve cannot go negative")
+end
+
+local function receive(sender, text, prefix, channel)
+    S.fire("CHAT_MSG_ADDON", prefix or "GuildCoffers", text, channel or "GUILD", sender)
+end
+local function rowFor(ns, name)
+    for _, r in ipairs(ns.BoardRows()) do if r.name == name then return r end end
+end
+
+do -- announcing ourselves after login
+    local ns = fresh()
+    eq(S.prefix, "GuildCoffers", "addon message prefix registered")
+    eq(#S.sent, 0, "nothing sent straight at login")
+    advance(16)
+    eq(#S.sent, 2, "state and hello sent after the login delay")
+    eq(S.sent[1].msg, "1|10|0|0|0", "state message carries rate and totals")
+    eq(S.sent[1].channel, "GUILD", "sent to the guild channel")
+    eq(S.sent[2].msg, "H|1", "hello asks who else uses the addon")
+end
+
+do -- sharing can be switched off, and nothing is sent outside a guild
+    local ns = fresh()
+    ns.HandleCommand("share")
+    eq(ns.db.share, false, "share toggled off")
+    advance(16)
+    eq(#S.sent, 0, "nothing sent while sharing is off")
+    local ns2 = fresh({ inGuild = false })
+    advance(16)
+    eq(#S.sent, 0, "nothing sent when not in a guild")
+end
+
+do -- receiving guildmates' totals
+    local ns = fresh()
+    receive("Bob-Realm", "1|15|500000|3|1700000000")
+    local bob = rowFor(ns, "Bob")
+    truthy(bob, "guildmate appears on the board")
+    eq(bob.rate, 15, "their rate is stored")
+    eq(bob.donated, 500000, "their total is stored")
+    eq(ns.BoardRows()[1].name, "Bob", "biggest donor listed first")
+    truthy(rowFor(ns, "Test Char") and rowFor(ns, "Test Char").me, "you are on the board too")
+    receive("Bob-Realm", "1|20|600000|4|1700000500")
+    eq(rowFor(ns, "Bob").donated, 600000, "a newer message replaces the old one")
+end
+
+do -- bad or unwanted messages are ignored
+    local ns = fresh()
+    receive("Eve-Realm", "1|15|500000|3|1700000000", "OtherAddon")
+    receive("Eve-Realm", "1|15|500000|3|1700000000", "GuildCoffers", "WHISPER")
+    receive("Eve-Realm", "garbage")
+    receive("Eve-Realm", "1|abc|5|3|0")
+    receive("Eve-Realm", "1|15|500000")
+    receive("Test Char-Realm", "1|15|500000|3|1700000000")   -- our own echo
+    eq(rowFor(ns, "Eve"), nil, "nothing stored from bad messages")
+    eq(rowFor(ns, "Test Char").donated, 0, "own echo ignored")
+    receive("Mal-Realm", "1|999|99999999999999|3|0")
+    eq(rowFor(ns, "Mal").rate, 100, "rate clamped to 100")
+    S.fire("CHAT_MSG_ADDON", "GuildCoffers", "1|15|5|3|0", "GUILD", { secret = true })
+    eq(rowFor(ns, "Sec"), nil, "no crash on secret values")
+end
+
+do -- someone asks who uses the addon: we answer after a pause, and not in a flood
+    local ns = fresh()
+    advance(16); advance(20); S.sent = {}
+    receive("New-Realm", "H|1")
+    eq(#S.sent, 0, "reply is delayed")
+    advance(11)
+    eq(#S.sent, 1, "we answer the hello")
+    eq(S.sent[1].msg:sub(1, 2), "1|", "the answer is our state")
+end
+
+do -- a deposit is shared shortly after, in one batch
+    local ns = fresh()
+    advance(16); S.sent = {}
+    ns.Char().owed = 10 * GOLD
+    S.fire("GUILDBANKFRAME_OPENED"); advance(1)
+    eq(S.logQuery, 9, "the money log is requested when the bank opens")
+    advance(40)
+    eq(#S.sent, 1, "one state message after the deposit")
+    eq(S.sent[1].msg:find("^1|10|" .. (10 * GOLD) .. "|1|"), 1, "it carries the new total")
+    S.fire("GUILDBANKFRAME_CLOSED")
+end
+
+do -- verification against the guild bank log
+    local ns = fresh()
+    receive("Bob-Realm", "1|15|500000|3|1700000000")
+    receive("Dan-Realm", "1|10|900000|2|1700000000")
+    S.bankLog = {
+        { "deposit", "Bob", 20000, 0, 0, 1, 2 },
+        { "deposit", "Bob", 10000, 0, 0, 2, 0 },
+        { "withdraw", "Bob", 99999, 0, 0, 0, 1 },
+        { "deposit", "Cara", 30000, 0, 0, 3, 0 },
+    }
+    S.fire("GUILDBANKLOG_UPDATE")
+    local bob, dan, cara = rowFor(ns, "Bob"), rowFor(ns, "Dan"), rowFor(ns, "Cara")
+    eq(bob.verified, true, "Bob's deposits appear in the log")
+    eq(bob.bankTotal, 30000, "only deposits are totalled")
+    eq(dan.verified, nil, "Dan claims donations but the log shows none: unverified")
+    truthy(cara and cara.verified and not cara.usesAddon, "log-only donor listed without the addon")
+    truthy(bob.bankLast > 0 and bob.bankLast < time(), "log age turned into a date")
+end
+
+do -- the leaderboard window
+    local ns = fresh()
+    receive("Bob-Realm", "1|15|500000|3|1700000000")
+    S.bankLog = { { "deposit", "Bob", 20000, 0, 0, 1, 2 } }
+    S.fire("GUILDBANKLOG_UPDATE")
+    ns.HandleCommand("board")
+    local b = _G.GuildCoffersBoard
+    truthy(b, "board window built")
+    eq(b.lines[1][2]._text, "Bob", "top row is the biggest donor")
+    truthy(b.lines[1][6]._text:find("Verified", 1, true), "verified shown")
+    eq(b.lines[2][2]._text, "Test Char (you)", "your own row is marked")
+    eq(b.lines[3][2]._text, "", "unused rows are blank")
+    ns.HandleCommand("board")
+    eq(b:IsShown(), false, "board toggles closed")
+end
+
+do -- the custom-amount tooltip and the new panel controls
+    local ns = fresh()
+    ns.HandleCommand("window")
+    local p = ns.panels[#ns.panels]
+    local lines = {}
+    _G.GameTooltip = { SetOwner = function() end, Show = function() end, Hide = function() end,
+        AddLine = function(_, text) lines[#lines + 1] = text end }
+    p.reserveHit.scripts.OnEnter(p.reserveHit)
+    local joined = table.concat(lines, "\n")
+    truthy(joined:find("/coffers reserve", 1, true), "tooltip tells players how to type an exact amount")
+    truthy(joined:find("silver", 1, true), "tooltip explains g, s and c")
+    truthy(p.boardBtn and p.share, "leaderboard button and share box exist")
+    ns.db.share = false
+    ns.RefreshUI()
+    p.share.scripts.OnClick(p.share)
+    _G.GameTooltip = nil
 end
 
 real_print(string.format("%d checks passed, %d failed", passed, failures))

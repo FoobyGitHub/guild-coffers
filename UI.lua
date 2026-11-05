@@ -31,6 +31,25 @@ local function Label(parent, template, point, x, y, text)
     return fs
 end
 
+-- Hover text for a frame.
+local function Tip(frame, title, text)
+    frame:EnableMouse(true)
+    frame:SetScript("OnEnter", function(self)
+        if not GameTooltip then return end
+        GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
+        GameTooltip:AddLine(title)
+        GameTooltip:AddLine(text, 1, 1, 1, true)
+        GameTooltip:Show()
+    end)
+    frame:SetScript("OnLeave", function()
+        if GameTooltip then GameTooltip:Hide() end
+    end)
+end
+
+local RESERVE_TIP = "A deposit never takes you below this amount. Anything held back stays owed "
+    .. "and is deposited later.\n\nThe buttons change it in steps. For an exact amount, type "
+    .. "/coffers reserve 5g 50s 20c in chat (g = gold, s = silver, c = copper; a plain number is gold)."
+
 ---------------------------------------------------------------------------
 -- Refresh
 ---------------------------------------------------------------------------
@@ -58,6 +77,7 @@ end
 local function RefreshPanel(p)
     local c = ns.Char()
     Safe("rate text", function() p.rateText:SetText(ns.db.rate .. "%") end)
+    Safe("share box", function() p.share:SetChecked(ns.db.share and true or false) end)
     Safe("chat box", function() p.chat:SetChecked(ns.db.showChat and true or false) end)
     Safe("tracking box", function() p.enabled:SetChecked(ns.db.enabled and true or false) end)
     Safe("counter box", function() p.showHud:SetChecked(ns.db.showHud and true or false) end)
@@ -87,11 +107,12 @@ end
 -- Settings panel
 ---------------------------------------------------------------------------
 
-local function Check(parent, y, text, onClick)
+local function Check(parent, y, text, onClick, x)
+    x = x or 14
     local cb = CreateFrame("CheckButton", nil, parent, "UICheckButtonTemplate")
-    cb:SetPoint("TOPLEFT", 14, y)
+    cb:SetPoint("TOPLEFT", x, y)
     cb:SetScript("OnClick", function(self) onClick(self:GetChecked() and true or false) end)
-    Label(parent, "GameFontHighlight", "TOPLEFT", 44, y - 7, text)
+    Label(parent, "GameFontHighlight", "TOPLEFT", x + 30, y - 7, text)
     return cb
 end
 
@@ -119,6 +140,11 @@ local function BuildPanel(parent)
         ns.db.showChat = v
     end)
 
+    p.share = Check(p, -72, "Share my donations with the guild", function(v)
+        ns.db.share = v
+        if v and ns.ScheduleShare then ns.ScheduleShare() end
+    end, 290)
+
     -- The rate is shown as plain text (like the status lines below) and changed with
     -- buttons or /coffers rate <0-100>, rather than with a typed-in box.
     Label(p, "GameFontHighlight", "TOPLEFT", 20, -198, "Tax rate")
@@ -145,11 +171,17 @@ local function BuildPanel(parent)
     -- Minimum to keep: a deposit never takes you below this. Buttons for quick changes;
     -- /coffers reserve 5g 50s sets an exact amount.
     Label(p, "GameFontHighlight", "TOPLEFT", 20, -234, "Always keep")
+    local labelHit = CreateFrame("Frame", nil, p)
+    labelHit:SetSize(100, 22)
+    labelHit:SetPoint("TOPLEFT", 16, -230)
+    Tip(labelHit, "Always keep", RESERVE_TIP)
+    p.reserveHit = labelHit
     local function ReserveButton(text, delta)
         local b = CreateFrame("Button", nil, p, "UIPanelButtonTemplate")
         b:SetSize(42, 22)
         b:SetText(text)
         b:SetScript("OnClick", function() ns.SetReserve((ns.db.reserve or 0) + delta) end)
+        Tip(b, "Always keep", RESERVE_TIP)
         return b
     end
     local r1 = ReserveButton("-100g", -1000000)
@@ -162,6 +194,10 @@ local function BuildPanel(parent)
     p.reserveText:SetPoint("LEFT", r3, "RIGHT", 6, 0)
     p.reserveText:SetWidth(90)
     p.reserveText:SetJustifyH("CENTER")
+    local valueHit = CreateFrame("Frame", nil, p)
+    valueHit:SetSize(90, 22)
+    valueHit:SetPoint("LEFT", r3, "RIGHT", 6, 0)
+    Tip(valueHit, "Always keep", RESERVE_TIP)
     local r4 = ReserveButton("+1g", 10000)
     r4:SetPoint("LEFT", p.reserveText, "RIGHT", 6, 0)
     local r5 = ReserveButton("+10g", 100000)
@@ -169,7 +205,7 @@ local function BuildPanel(parent)
     local r6 = ReserveButton("+100g", 1000000)
     r6:SetPoint("LEFT", r5, "RIGHT", 2, 0)
     local hint = Label(p, "GameFontHighlightSmall", "TOPLEFT", 130, -256,
-        "Exact amount: /coffers reserve 5g 50s")
+        "Hover for help. Exact amount: /coffers reserve 5g 50s")
     hint:SetTextColor(0.7, 0.7, 0.7)
 
     p.owed = Label(p, "GameFontHighlight", "TOPLEFT", 20, -284)
@@ -207,6 +243,15 @@ local function BuildPanel(parent)
         end)
     end)
     p.reset = reset
+
+    local boardBtn = CreateFrame("Button", nil, p, "UIPanelButtonTemplate")
+    boardBtn:SetSize(110, 24)
+    boardBtn:SetPoint("LEFT", reset, "RIGHT", 10, 0)
+    boardBtn:SetText("Leaderboard")
+    boardBtn:SetScript("OnClick", function() if ns.ToggleBoard then ns.ToggleBoard() end end)
+    Tip(boardBtn, "Leaderboard", "Who in the guild is using Guild Coffers, their rate and what they have donated. "
+        .. "Players whose deposits show in the guild bank log are marked Verified.")
+    p.boardBtn = boardBtn
 
     p.version = Label(p, "GameFontHighlightSmall", "TOPLEFT", 20, -418, "Version " .. ns.GetVersion())
 

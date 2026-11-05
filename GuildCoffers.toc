@@ -10,4 +10,6 @@
 
 Core.lua
 Tracker.lua
+Sync.lua
 UI.lua
+Board.lua

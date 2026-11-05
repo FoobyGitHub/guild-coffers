@@ -8,7 +8,7 @@ ns.frame = CreateFrame("Frame")
 -- Forever inherits retail's "secret value" restrictions; guard where it exists.
 ns.isSecret = issecretvalue or function() return false end
 
-local DEFAULTS = { rate = 10, enabled = true, showHud = true, hudLocked = false, showChat = false, reserve = 0 }
+local DEFAULTS = { rate = 10, enabled = true, showHud = true, hudLocked = false, showChat = false, reserve = 0, share = true }
 
 ---------------------------------------------------------------------------
 -- Helpers
@@ -149,6 +149,7 @@ function ns.SetRate(value)
     if n < 0 then n = 0 end
     if n > 100 then n = 100 end
     ns.db.rate = n
+    if ns.ScheduleShare then ns.ScheduleShare() end
     if ns.RefreshUI then ns.RefreshUI() end
     return true
 end
@@ -201,6 +202,8 @@ local function PrintHelp()
     print("  /coffers rate <0-100> - set your tax percentage")
     print("  /coffers reserve <amount> - gold to always keep, e.g. 100g or 5g 50s (0 = none)")
     print("  /coffers reset - set the amount owed back to zero")
+    print("  /coffers board - open the guild leaderboard")
+    print("  /coffers share - share your donations with the guild on or off")
     print("  /coffers on | off - turn tracking on or off")
     print("  /coffers status - show what you owe and have donated")
     print("  /coffers deposit - deposit now (guild bank must be open)")
@@ -228,6 +231,8 @@ local function PrintDebug()
     local unknown = {}
     for event in pairs(ns.unknownEvents or {}) do unknown[#unknown + 1] = event end
     table.sort(unknown)
+    print("  Guild sharing: " .. yn((C_ChatInfo and C_ChatInfo.SendAddonMessage) or SendAddonMessage)
+        .. ", IsInGuild: " .. yn(IsInGuild) .. ", bank log: " .. yn(QueryGuildBankLog and GetGuildBankMoneyTransaction))
     print("  Events this client rejected: " .. (#unknown > 0 and table.concat(unknown, ", ") or "none"))
 end
 
@@ -258,6 +263,13 @@ function ns.HandleCommand(input)
             ns.Print("usage: /coffers reserve <amount>, e.g. 100g or 5g 50s 20c (0 for none). Current: "
                 .. ns.ReserveText(ns.db.reserve))
         end
+    elseif cmd == "board" or cmd == "top" or cmd == "leaderboard" then
+        if ns.ToggleBoard then ns.ToggleBoard() end
+    elseif cmd == "share" then
+        ns.db.share = not ns.db.share
+        ns.Print("sharing your donations with the guild " .. (ns.db.share and "on." or "off."))
+        if ns.db.share and ns.ScheduleShare then ns.ScheduleShare() end
+        if ns.RefreshUI then ns.RefreshUI() end
     elseif cmd == "reset" then
         ns.ResetOwed()
     elseif cmd == "on" or cmd == "off" then

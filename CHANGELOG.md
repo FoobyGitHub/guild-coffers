@@ -5,6 +5,8 @@ All notable changes to Guild Coffers are recorded here.
 ## [Unreleased] (alpha)
 
 ### Added
+- Guild leaderboard (`/coffers board` or the Leaderboard button): guildmates running the addon share their rate and donation totals over the guild addon channel, and the guild bank money log is read to mark players whose deposits it shows as Verified. Totals without a matching log entry are shown as Unverified. Sharing can be turned off (`/coffers share`).
+- Hover help on "Always keep" explains how to type an exact amount.
 - "Always keep" minimum: a deposit never takes you below an amount you choose (gold, silver or copper), set with buttons or `/coffers reserve 5g 50s`. Anything held back stays owed. Off by default.
 - "Reset amount owed" button (two clicks to confirm) and `/coffers reset`; lifetime donated is kept.
 - Gold tracking: your tax percentage of gold received (loot, quests, vendor sales, mail) is set aside. Gold from trades and from bank or guild bank withdrawals is not counted.
@@ -24,6 +26,3 @@ All notable changes to Guild Coffers are recorded here.
 - The guild bank is detected both from game events and by hooking Blizzard's guild bank frame, so the automatic deposit still fires if this client opens the bank differently.
 - `/coffers watch` logs guild bank events for 60 seconds, to show what a client does when the bank opens.
 - Initial project scaffold for WoW: Forever (interface 16001).
-
-### Not yet included
-- Guild contributor list, guildmate sync and bank-log verification.

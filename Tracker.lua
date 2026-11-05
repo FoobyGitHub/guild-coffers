@@ -46,6 +46,7 @@ local function setOpen(kind, state)
         if open[kind] then return end
         open[kind] = true
         if kind == "guildbank" then
+            if ns.OnGuildBankOpened then ns.OnGuildBankOpened() end
             C_Timer.After(DEPOSIT_DELAY, function()
                 if open.guildbank then ns.TryDeposit(false) end
             end)
@@ -76,8 +77,11 @@ local function RecordDeposit(amount)
         .. ns.CoinText(amount) .. (self_made and " to the guild bank." or ".")
     if c.owed >= 1 then msg = msg .. " Still owed: " .. ns.CoinText(c.owed) .. "." end
     ns.Print(msg)
+    if ns.OnDepositRecorded then ns.OnDepositRecorded() end
     if ns.RefreshUI then ns.RefreshUI() end
 end
+
+function ns.IsGuildBankOpen() return open.guildbank == true end
 
 function ns.TryDeposit(manual)
     if not ns.db then return end
