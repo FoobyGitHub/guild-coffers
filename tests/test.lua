@@ -79,7 +79,7 @@ local function installGlobals()
     _G.UISpecialFrames = {}
     _G.tinsert = table.insert
     _G.SlashCmdList = {}
-    _G.UnitName = function() return "Test Char" end   -- Forever names can contain a space
+    _G.UnitName = function() return S.unitName or "Test Char" end   -- Forever names can contain a space
     _G.GetRealmName = function() return "Realm" end
     _G.GetBuildInfo = function() return "1.60.1", "69913", "Oct 1 2026", 16001 end
     _G.GetTime = function() return S.now end
@@ -944,6 +944,36 @@ do -- defaults: guild bank and 10%, and /coffers defaults puts them back
     eq(ns.db.rate, 10, "defaults: back to 10%")
     eq(ns.db.reserve, 0, "defaults: no reserve")
     eq(ns.Char().donated, 7 * GOLD, "defaults keep your tax records")
+end
+
+do -- one person, not two: the bank log has the full name, the game gave only the first name
+    local ns = fresh({ unitName = "Leeroy" })
+    ns.Char().donated = 202
+    S.bankLog = { { "deposit", "Leeroy Mcbiff", 202, 0, 0, 0, 0 } }
+    S.fire("GUILDBANKLOG_UPDATE")
+    local rows = ns.BoardRows()
+    eq(#rows, 1, "one row for one player")
+    eq(rows[1].name, "Leeroy Mcbiff", "the fuller name is shown")
+    eq(rows[1].me, true, "it is marked as you")
+    eq(rows[1].verified, true, "and verified by the bank log")
+    receive("Leeroy Mcbiff-Realm", "1|10|202|1|1700000000")
+    eq(#ns.BoardRows(), 1, "your own echo does not add a second row")
+end
+
+do -- names that only share a first name stay separate when both are full names
+    local ns = fresh({ unitName = "Leeroy Mcbiff" })
+    S.bankLog = { { "deposit", "Leeroy Jenkins", 500, 0, 0, 0, 0 } }
+    S.fire("GUILDBANKLOG_UPDATE")
+    eq(#ns.BoardRows(), 2, "two different players")
+    eq(ns.SameName("Leeroy", "Leeroy Mcbiff-Realm"), true, "first name matches full name")
+    eq(ns.SameName("Leeroy Jenkins", "Leeroy Mcbiff"), false, "different surnames do not match")
+    eq(ns.SameName("Lee", "Leeroy"), false, "partial words do not match")
+end
+
+do -- debug shows the name lookups
+    local ns = fresh()
+    ns.HandleCommand("debug")
+    truthy(printedAny("Names: UnitName = Test Char"), "debug lists the player's name lookups")
 end
 
 real_print(string.format("%d checks passed, %d failed", passed, failures))

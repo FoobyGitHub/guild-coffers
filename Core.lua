@@ -244,6 +244,18 @@ local function PrintDebug()
     table.sort(unknown)
     print("  Own-bank deposit (C_Bank.DepositMoney): " .. yn(C_Bank and C_Bank.DepositMoney)
         .. ", Enum.BankType.Account: " .. yn(Enum and Enum.BankType and Enum.BankType.Account))
+    pcall(function()
+        local function all(fn, ...)
+            if not fn then return "NO" end
+            local r = { pcall(fn, ...) }
+            if not r[1] then return "error" end
+            local t = {}
+            for i = 2, #r do t[#t + 1] = ns.isSecret(r[i]) and "<secret>" or tostring(r[i]) end
+            return table.concat(t, ", ")
+        end
+        print("  Names: UnitName = " .. all(UnitName, "player") .. "; GetUnitName = " .. all(GetUnitName, "player", true)
+            .. "; UnitFullName = " .. all(UnitFullName, "player"))
+    end)
     print("  Guild sharing: " .. yn((C_ChatInfo and C_ChatInfo.SendAddonMessage) or SendAddonMessage)
         .. ", IsInGuild: " .. yn(IsInGuild) .. ", bank log: " .. yn(QueryGuildBankLog and GetGuildBankMoneyTransaction))
     print("  Events this client rejected: " .. (#unknown > 0 and table.concat(unknown, ", ") or "none"))

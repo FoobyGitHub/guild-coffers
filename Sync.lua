@@ -26,6 +26,41 @@ local function Short(name)
 end
 ns.ShortName = Short
 
+-- Forever characters have a first and a last name. Some parts of the game give the full name
+-- ("Leeroy Mcbiff"), others only the first ("Leeroy"). Treat those as the same person.
+local function Norm(name)
+    local s = Short(name):lower()
+    s = s:gsub("^%s+", ""):gsub("%s+$", "")
+    return s
+end
+function ns.SameName(a, b)
+    a, b = Norm(a), Norm(b)
+    if a == "" or b == "" then return false end
+    if a == b then return true end
+    return b:sub(1, #a + 1) == a .. " " or a:sub(1, #b + 1) == b .. " "
+end
+
+-- Every name the game gives for the player, longest (most complete) first.
+function ns.MyNames()
+    local names = {}
+    local function add(fn, ...)
+        if not fn then return end
+        local ok, n = pcall(fn, ...)
+        if ok and type(n) == "string" and n ~= "" and not ns.isSecret(n) then names[#names + 1] = Short(n) end
+    end
+    add(UnitName, "player")
+    add(GetUnitName, "player", false)
+    add(UnitFullName, "player")
+    table.sort(names, function(x, y) return #x > #y end)
+    return names
+end
+function ns.IsMe(name)
+    for _, n in ipairs(ns.MyNames()) do
+        if ns.SameName(n, name) then return true end
+    end
+    return false
+end
+
 local function Board()
     ns.db.board = ns.db.board or {}
     return ns.db.board
@@ -92,7 +127,7 @@ local function OnAddonMessage(_, prefix, text, channel, sender)
     if not ok(text) or not ok(sender) or not ns.db then return end
     text, sender = tostring(text), tostring(sender)
     local who = Short(sender)
-    if who == "" or who == Short(UnitName("player")) then return end
+    if who == "" or ns.IsMe(who) then return end
 
     local kind = text:match("^(%w+)|")
     if kind == "H" then
@@ -209,28 +244,38 @@ end
 -- One row per player we know about, biggest donor first.
 -- verified = the guild bank log shows at least one deposit by them.
 function ns.BoardRows()
-    local rows, byName = {}, {}
+    -- Rows are matched by name, allowing for first-name-only and full-name versions of the same
+    -- player; the fullest version is shown.
+    local rows = {}
     local function row(name)
-        if not byName[name] then
-            byName[name] = { name = name }
-            rows[#rows + 1] = byName[name]
+        for _, r in ipairs(rows) do
+            if ns.SameName(r.name, name) then
+                if #name > #r.name then r.name = name end
+                return r
+            end
         end
-        return byName[name]
+        local r = { name = name }
+        rows[#rows + 1] = r
+        return r
     end
     if ns.db then
-        for name, e in pairs(Board()) do
-            local r = row(name)
-            r.rate, r.donated, r.deposits, r.last = e.rate, e.donated, e.deposits, e.last
-            r.usesAddon = true
-        end
         local c = ns.Char()
-        local me = row(Short(UnitName("player")))
+        local me = row(ns.MyNames()[1] or "?")
         me.rate, me.donated, me.deposits, me.last = ns.db.rate, math.floor(c.donated or 0),
             c.deposits or 0, c.lastDonated or 0
         me.usesAddon, me.me = true, true
+        for name, e in pairs(Board()) do
+            if not ns.IsMe(name) then
+                local r = row(name)
+                r.rate, r.donated, r.deposits, r.last = e.rate, e.donated, e.deposits, e.last
+                r.usesAddon = true
+            end
+        end
         for name, t in pairs(Bank()) do
             local r = row(name)
-            r.bankTotal, r.bankCount, r.bankLast = t.total, t.count, t.last
+            r.bankTotal = (r.bankTotal or 0) + t.total
+            r.bankCount = (r.bankCount or 0) + t.count
+            r.bankLast = math.max(r.bankLast or 0, t.last or 0)
             r.verified = true
         end
     end
