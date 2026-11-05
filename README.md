@@ -1,62 +1,53 @@
 # Guild Coffers
 
-A passive guild tax addon for **World of Warcraft: Forever**. You choose a percentage of the gold you receive, and the addon deposits it into the guild bank when you next open it. A shared guild list shows who contributes, how much, and when.
+A simple, passive guild tax for **World of Warcraft: Forever**. Choose a percentage, and Guild Coffers keeps count of the gold you receive and donates your share to the guild bank when you open it.
 
-> **Status: early test build.** Personal tax tracking and deposits are built but have only been tested against a simulated client so far, not the real Forever client. The guild features are planned and not built yet.
+> **Early version.** The guild bank deposit and the vendor/mailbox summary have not been tested in the live client yet. Please report any problems.
 
-## What works now
+## What it does
 
-- Your own tax rate (default 10%), set in the window or with `/coffers rate <0-100>`
-- Tracking of gold received: loot, quests, vendor sales and mail. Trades and bank or guild bank withdrawals are not counted.
-- Automatic deposit shortly after you open the guild bank. The addon confirms the gold really left, and warns you if the client blocks the deposit.
-- Manual deposits made while the guild bank is open are credited too.
-- Settings panel in the game's AddOns settings (`/coffers`), plus an on-screen counter showing the gold to keep aside and the amount collected since your last deposit.
-- Tracking is on and the rate is 10% by default.
+- Tracks gold from loot, quests, vendors and mail, and works out your share.
+- Deposits what you owe when you open the guild bank. Gold you deposit by hand while it is open is credited too.
+- Ignores trades and gold you take out of a bank.
+
+## Settings
+
+Open them with `/coffers`, or ESC → Options → AddOns → Guild Coffers.
+
+| Setting | Default |
+|---|---|
+| Track gold and tax it | On |
+| Tax rate | 10% (change with -5, -, +, +5) |
+| Show the tax counter on screen | On |
+| Lock the counter's position | Off |
+| Show tax in chat | Off |
+
+- **Counter:** shows how much to keep aside and the gold collected since your last deposit. Drag it to move it, right-click to open settings.
+- **Chat:** reports your tax after each gain. At a vendor or mailbox it waits and gives one summary when you close the window.
 
 ## Commands
 
 | Command | What it does |
 |---|---|
-| `/coffers` | Open the settings (AddOns menu) |
-| `/coffers hud` | Show or hide the on-screen tax counter |
-| `/coffers chat` | Show or hide a chat summary of the tax on your gains |
-| `/coffers window` | Open the settings in a standalone window |
+| `/coffers` | Open the settings |
 | `/coffers rate <0-100>` | Set your tax percentage |
 | `/coffers on` / `off` | Turn tracking on or off |
+| `/coffers hud` | Show or hide the counter |
+| `/coffers chat` | Show or hide the chat summary |
 | `/coffers status` | Show what you owe and have donated |
 | `/coffers deposit` | Deposit now (guild bank must be open) |
-| `/coffers debug` | Print a compatibility report to include in bug reports |
-| `/coffers watch` | Log guild bank events for 60 seconds, then open the guild bank. Include the output in bug reports |
+| `/coffers debug` | Compatibility report, handy for bug reports |
 
-## Planned features
+## Planned
 
-- Guild contributor list: who runs the addon, their rate, total donated, last donation
-- Background sync between guildmates over the guild addon channel (paused while in an instance)
-- Donation totals verified against the guild bank's money log; self-reported figures shown as unverified
+A guild list showing who uses the addon, their rate and donations, synced between guildmates.
 
-## Development
+## Installing and reporting problems
 
-The logic is tested against a fake WoW API under Lua 5.1: `pip install lupa` then `python3 tests/run.py`. This catches logic errors but is not a substitute for testing in the real client.
+Install from CurseForge (choose the **Forever** version), or copy this folder into your `Interface/AddOns/GuildCoffers/` folder. If something goes wrong, please open an issue with any error text and the output of `/coffers debug`.
 
-## Compatibility
+## Licence
 
-- WoW: Forever client 1.60.1 (interface 16001). Forever is in beta and its API may change.
-- Not a Classic Era or Retail addon.
-
-## Installation
-
-Install from CurseForge (choose the **Forever** version), or copy this folder into `World of Warcraft/_classic_beta_/Interface/AddOns/GuildCoffers/`.
-
-## Reporting problems
-
-Open an issue and include any Lua error text and your client version.
-
-## Licence and policy
-
-MIT licence, see [LICENSE](LICENSE). Free, no premium features, no ads, and no in-game donation requests, in line with Blizzard's UI Add-On Development Policy.
-
-## Credits
-
-No third-party code is used. Other guild tithe addons exist for Retail and Classic and were reviewed for context only; none of their code is reused here.
+MIT, see [LICENSE](LICENSE). Free, with no ads and no donation requests. No third-party code is used.
 
 *Guild Coffers is an independent addon and is not affiliated with or endorsed by Blizzard Entertainment. World of Warcraft is a trademark of Blizzard Entertainment, Inc.*
