@@ -8,7 +8,7 @@ ns.frame = CreateFrame("Frame")
 -- Forever inherits retail's "secret value" restrictions; guard where it exists.
 ns.isSecret = issecretvalue or function() return false end
 
-local DEFAULTS = { rate = 10, enabled = true, showHud = true, hudLocked = false, showChat = false, reserve = 0, dest = "guild" }
+local DEFAULTS = { rate = 10, enabled = true, showHud = true, hudLocked = false, showChat = false, reserve = 0, dest = "guild", promoAmount = 0, promoDays = 30 }
 
 ---------------------------------------------------------------------------
 -- Helpers
@@ -121,6 +121,7 @@ ns.On("ADDON_LOADED", function(_, loaded)
     end
     db.chars = db.chars or {}
     db.share = nil   -- old setting: sharing now simply follows the guild-bank choice
+    db.bank = nil    -- old store of the current bank log; replaced by the donation history
     ns.db = db
 end)
 
@@ -213,6 +214,7 @@ local function PrintHelp()
     print("  /coffers reset - set the amount owed back to zero")
     print("  /coffers dest guild | bank - deposit to the guild bank (default) or your own bank")
     print("  /coffers log - at the guild bank: report what its money log holds (for bug reports)")
+    print("  /coffers promote - officers: members ready for promotion")
     print("  /coffers board - open the guild leaderboard")
     print("  /coffers defaults - put every setting back to its default (guild bank, 10%)")
     print("  /coffers on | off - turn tracking on or off")
@@ -259,6 +261,11 @@ local function PrintDebug()
         print("  Names: UnitName = " .. all(UnitName, "player") .. "; GetUnitName = " .. all(GetUnitName, "player", true)
             .. "; UnitFullName = " .. all(UnitFullName, "player"))
     end)
+    print("  Promote: GuildPromote " .. yn(GuildPromote) .. ", C_GuildInfo.Promote " .. yn(C_GuildInfo and C_GuildInfo.Promote)
+        .. ", CanGuildPromote " .. yn(CanGuildPromote) .. ", you can promote: " .. yn(ns.CanPromote and ns.CanPromote())
+        .. ", your rank index: " .. tostring(ns.myRankIndex))
+    local l = ns.db and ns.db.ledger
+    print("  History: " .. (l and #l.list or 0) .. " entries" .. (l and l.since and (" since " .. date("%Y-%m-%d %H:00", l.since * 3600)) or ""))
     print("  Guild sharing: " .. yn((C_ChatInfo and C_ChatInfo.SendAddonMessage) or SendAddonMessage)
         .. ", IsInGuild: " .. yn(IsInGuild) .. ", bank log: " .. yn(QueryGuildBankLog and GetGuildBankMoneyTransaction))
     print("  Events this client rejected: " .. (#unknown > 0 and table.concat(unknown, ", ") or "none"))
@@ -293,6 +300,12 @@ function ns.HandleCommand(input)
         end
     elseif cmd == "board" or cmd == "top" or cmd == "leaderboard" then
         if ns.ToggleBoard then ns.ToggleBoard() end
+    elseif cmd == "promote" or cmd == "promotions" then
+        if ns.CanPromote and ns.CanPromote() then
+            ns.ShowPromotions()
+        else
+            ns.Print("the promotions list is for guild members who are allowed to promote (officers and the guild master).")
+        end
     elseif cmd == "defaults" then
         ns.ResetSettings()
     elseif cmd == "dest" then

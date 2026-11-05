@@ -47,6 +47,7 @@ end
 
 local roster = {}   -- full names of guild members (realm removed)
 ns.roster = roster
+ns.rosterInfo = {}  -- [lower-case full name] = { name, raw, rankName, rankIndex }
 
 local function pack(...) return { n = select("#", ...), ... } end
 
@@ -57,21 +58,40 @@ function ns.ScanRoster()
     local myGuid = UnitGUID and UnitGUID("player")
     if not ok(myGuid) then myGuid = nil end
     for i = #roster, 1, -1 do roster[i] = nil end
+    local info = {}
     for i = 1, n do
         local r = pack(pcall(GetGuildRosterInfo, i))
         if r[1] and ok(r[2]) and type(r[2]) == "string" and r[2] ~= "" then
             local full = Short(r[2])
             roster[#roster + 1] = full
+            info[full:lower()] = {
+                name = full, raw = r[2],
+                rankName = ok(r[3]) and tostring(r[3]) or "?",
+                rankIndex = ok(r[4]) and tonumber(r[4]) or nil,
+            }
             if myGuid then
                 for j = 3, r.n do
                     if ok(r[j]) and r[j] == myGuid then
                         ns.Char().fullName = full
+                        ns.myRankIndex = info[full:lower()].rankIndex
                         break
                     end
                 end
             end
         end
     end
+    ns.rosterInfo = info
+    -- Lookups for FullName: exact names, and first names that belong to exactly one member.
+    local exact, first = {}, {}
+    for _, full in ipairs(roster) do
+        local f = Norm(full)
+        exact[f] = full
+        local fn = f:match("^(%S+) ")
+        if fn then
+            if first[fn] == nil then first[fn] = full else first[fn] = false end
+        end
+    end
+    ns.rosterExact, ns.rosterFirst = exact, first
     if ns.RefreshBoard then ns.RefreshBoard() end
 end
 
@@ -80,16 +100,11 @@ end
 function ns.FullName(name)
     name = Short(name)
     local n = Norm(name)
-    local found
-    for _, full in ipairs(roster) do
-        local f = Norm(full)
-        if f == n then return full end
-        if f:sub(1, #n + 1) == n .. " " then
-            if found then return name end
-            found = full
-        end
-    end
-    return found or name
+    local full = ns.rosterExact and ns.rosterExact[n]
+    if full then return full end
+    full = ns.rosterFirst and ns.rosterFirst[n]
+    if full then return full end   -- false (two members share it) falls through
+    return name
 end
 
 -- Every name the game gives for the player, most complete first.
@@ -122,11 +137,6 @@ local function Board()
     ns.db.board = ns.db.board or {}
     return ns.db.board
 end
-local function Bank()
-    ns.db.bank = ns.db.bank or {}
-    return ns.db.bank
-end
-
 ---------------------------------------------------------------------------
 -- Sending
 ---------------------------------------------------------------------------
@@ -136,6 +146,8 @@ local function Send(msg)
     if not fn or not IsInGuild or not IsInGuild() then return false end
     return pcall(fn, PREFIX, msg, "GUILD")
 end
+
+ns.SendGuild = Send
 
 -- Tell the guild our rate and totals (if the player allows it).
 function ns.ShareNow()
@@ -197,6 +209,12 @@ local function OnAddonMessage(_, prefix, text, channel, sender)
         end
         return
     end
+    if kind == "L" or kind == "R" or kind == "Q" then
+        local observer = ns.FullName(who)
+        if ns.IsMe(observer) then return end
+        if ns.OnLedgerMessage then ns.OnLedgerMessage(kind, text, observer) end
+        return
+    end
     if kind ~= tostring(PROTOCOL) then return end
 
     local _, rate, donated, deposits, last, claimed = text:match("^(%w+)|(%d+)|(%d+)|(%d+)|(%d+)|?([^|]*)$")
@@ -236,26 +254,21 @@ function ns.ReadBankLog()
     if not (GetNumGuildBankMoneyTransactions and GetGuildBankMoneyTransaction) or not ns.db then return end
     local okN, n = pcall(GetNumGuildBankMoneyTransactions)
     if not okN or not ok(n) then return end
-    local totals = {}
+    local nowH = ns.Hour()
+    local obs = {}
     for i = 1, n do
         local okT, kind, name, amount, years, months, days, hours = pcall(GetGuildBankMoneyTransaction, i)
-        if okT and kind == "deposit" and ok(name) and ok(amount) then
-            name = Short(name)
-            local age = (((tonumber(years) or 0) * 365 + (tonumber(months) or 0) * 30
-                + (tonumber(days) or 0)) * 24 + (tonumber(hours) or 0)) * 3600
-            local t = totals[name]
-            if not t then
-                t = { total = 0, count = 0, last = 0 }
-                totals[name] = t
-            end
-            t.total = t.total + (tonumber(amount) or 0)
-            t.count = t.count + 1
-            t.last = math.max(t.last, time() - age)
+        local t = okT and ok(kind) and ns.LEDGER_TYPES[kind]
+        if t and ok(name) and ok(amount) and (tonumber(amount) or 0) >= 1 then
+            local ageHours = ((tonumber(years) or 0) * 365 + (tonumber(months) or 0) * 30
+                + (tonumber(days) or 0)) * 24 + (tonumber(hours) or 0)
+            obs[#obs + 1] = { t = t, n = Short(name), a = math.floor(tonumber(amount)), h = nowH - ageHours }
         end
     end
-    local bank = Bank()
-    for name, t in pairs(totals) do bank[name] = t end
-    if ns.RefreshBoard then ns.RefreshBoard() end
+    if #obs == 0 then return end
+    local me = ns.Char().fullName or ns.MyNames()[1]
+    ns.LedgerObserve(obs, me, true)
+    ns.ShareObservations(obs)
 end
 
 -- /coffers log: report what the money log holds, so the history can be designed around facts.
@@ -310,23 +323,27 @@ end
 -- One row per player we know about, biggest donor first.
 -- verified = the guild bank log shows at least one deposit by them.
 function ns.BoardRows()
-    -- Rows are matched by name, allowing for first-name-only and full-name versions of the same
-    -- player; the fullest version is shown.
-    local rows = {}
-    local function same(a, b)
-        if #roster > 0 then return Norm(a) == Norm(b) end   -- full names known: exact match only
-        return ns.SameName(a, b)
-    end
+    -- One row per player: guild roster members, addon users and anyone in the history.
+    -- Names are matched allowing for first-name-only and full versions; the fullest is shown.
+    local rows, byNorm = {}, {}
+    local exact = #roster > 0   -- full names known: exact match only (and a fast lookup)
     local function row(name)
         name = ns.FullName(name)
-        for _, r in ipairs(rows) do
-            if same(r.name, name) then
-                if #name > #r.name then r.name = name end
-                return r
+        local found
+        if exact then
+            found = byNorm[Norm(name)]
+        else
+            for _, r in ipairs(rows) do
+                if ns.SameName(r.name, name) then found = r; break end
             end
+        end
+        if found then
+            if #name > #found.name then found.name = name end
+            return found
         end
         local r = { name = name }
         rows[#rows + 1] = r
+        byNorm[Norm(name)] = r
         return r
     end
     if ns.db then
@@ -342,16 +359,24 @@ function ns.BoardRows()
                 r.usesAddon = true
             end
         end
-        for name, t in pairs(Bank()) do
-            local r = row(name)
-            r.bankTotal = (r.bankTotal or 0) + t.total
-            r.bankCount = (r.bankCount or 0) + t.count
-            r.bankLast = math.max(r.bankLast or 0, t.last or 0)
-            r.verified = true
+        for _, t in pairs(ns.LedgerTotals()) do
+            local r = row(t.name)
+            r.paidIn = (r.paidIn or 0) + t.paidIn
+            r.paidCount = (r.paidCount or 0) + t.paidCount
+            r.lastPaid = math.max(r.lastPaid or 0, t.lastPaid)
+            r.takenOut = (r.takenOut or 0) + t.takenOut
+            r.repairs = (r.repairs or 0) + t.repairs
+            r.verified = (r.paidCount or 0) > 0
+        end
+        for _, full in ipairs(roster) do
+            local r = row(full)
+            local info = ns.rosterInfo[full:lower()]
+            r.inGuild = true
+            if info then r.rankName, r.rankIndex = info.rankName, info.rankIndex end
         end
     end
     for _, r in ipairs(rows) do
-        r.score = math.max(r.donated or 0, r.bankTotal or 0)
+        r.score = (r.paidIn or 0) * 2 + (r.donated or 0)   -- verified gold counts first
     end
     table.sort(rows, function(a, b)
         if a.score ~= b.score then return a.score > b.score end
@@ -371,6 +396,7 @@ ns.On("PLAYER_LOGIN", function()
         if ns.db and ns.db.dest ~= "bank" and IsInGuild and IsInGuild() then
             ns.ShareNow()
             Send("H|" .. PROTOCOL)   -- ask who else is using the addon
+            C_Timer.After(5, function() if ns.RequestCatchUp then ns.RequestCatchUp() end end)
         end
     end)
 end)

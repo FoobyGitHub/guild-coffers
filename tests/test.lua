@@ -50,6 +50,7 @@ local function makeFrame(name)
     function f.Disable(self) rawset(self, "_disabled", true) end
     function f.Enable(self) rawset(self, "_disabled", false) end
     function f.SetupMenu(self, gen) rawset(self, "_gen", gen) end
+    function f.SetShown(self, v) rawset(self, "_shown", v and true or false) end
     function f.SetFrameStrata(self, strata) rawset(self, "_strata", strata) end
     function f.HookScript(self, which, fn) self.hooks[which] = fn end
     function f.SetText(self, t) rawset(self, "_text", t) end
@@ -137,7 +138,7 @@ local function installGlobals()
     _G.GetNumGuildMembers = function() return S.roster and #S.roster or 0 end
     _G.GetGuildRosterInfo = function(i)
         local m = S.roster[i]
-        return m[1], "Member", 1, 10, "Paladin", "Elwynn", "", "", true, 0, "PALADIN", 0, 0, false, false, 4, m[2]
+        return m[1], m[3] or "Member", m[4] or 1, 10, "Paladin", "Elwynn", "", "", true, 0, "PALADIN", 0, 0, false, false, 4, m[2]
     end
     _G.C_GuildInfo = { GuildRoster = function() S.rosterRequested = true end }
     _G.QueryGuildBankLog = function(tab) S.logQuery = tab end
@@ -170,7 +171,7 @@ local function fresh(opts)
     end
     installGlobals()
     local ns = {}
-    for _, file in ipairs({ "Core.lua", "Tracker.lua", "Sync.lua", "UI.lua", "Board.lua" }) do
+    for _, file in ipairs({ "Core.lua", "Tracker.lua", "Sync.lua", "History.lua", "UI.lua", "Board.lua" }) do
         assert(loadfile(file))("GuildCoffers", ns)
     end
     S.fire("ADDON_LOADED", "GuildCoffers")
@@ -746,7 +747,7 @@ end
 
 do -- a deposit is shared shortly after, in one batch
     local ns = fresh()
-    advance(16); S.sent = {}
+    advance(16); advance(6); S.sent = {}   -- past the login announcements and catch-up request
     ns.Char().owed = 10 * GOLD
     S.fire("GUILDBANKFRAME_OPENED"); advance(1)
     eq(S.logQuery, 9, "the money log is requested when the bank opens")
@@ -769,10 +770,11 @@ do -- verification against the guild bank log
     S.fire("GUILDBANKLOG_UPDATE")
     local bob, dan, cara = rowFor(ns, "Bob"), rowFor(ns, "Dan"), rowFor(ns, "Cara")
     eq(bob.verified, true, "Bob's deposits appear in the log")
-    eq(bob.bankTotal, 30000, "only deposits are totalled")
+    eq(bob.paidIn, 30000, "deposits are paid in")
+    eq(bob.takenOut, 99999, "withdrawals are taken out")
     eq(dan.verified, nil, "Dan claims donations but the log shows none: unverified")
     truthy(cara and cara.verified and not cara.usesAddon, "log-only donor listed without the addon")
-    truthy(bob.bankLast > 0 and bob.bankLast < time(), "log age turned into a date")
+    truthy(bob.lastPaid > 0 and bob.lastPaid < time(), "log age turned into a date")
 end
 
 do -- the leaderboard window
@@ -785,7 +787,7 @@ do -- the leaderboard window
     truthy(b, "board window built")
     eq(b._strata, "FULLSCREEN_DIALOG", "board sits above the Options window")
     eq(b.lines[1][2]._text, "Bob", "top row is the biggest donor")
-    truthy(b.lines[1][6]._text:find("Verified", 1, true), "verified shown")
+    truthy(b.lines[1][5]._text:find("2g", 1, true), "verified paid in shown")
     eq(b.lines[2][2]._text, "Test Char (you)", "your own row is marked")
     eq(b.lines[3][2]._text, "", "unused rows are blank")
     ns.HandleCommand("board")
@@ -995,7 +997,7 @@ do -- full names come from the guild roster, found by GUID, so it works for ever
     local me, other = rowFor(ns, "Leeroy Mcbiff"), rowFor(ns, "Leeroy Jenkins")
     truthy(me and me.me and me.verified, "you: one row, full name, verified")
     truthy(other and not other.me, "a guildmate with the same first name stays separate")
-    eq(#ns.BoardRows(), 2, "two people, two rows")
+    eq(#ns.BoardRows(), 3, "two Leeroys stay two rows (plus Bob from the roster)")
     advance(16)
     truthy(S.sent[1].msg:find("|Leeroy Mcbiff$"), "your full name is sent with your totals")
 
@@ -1021,6 +1023,215 @@ do -- debug shows the name lookups
     local ns = fresh()
     ns.HandleCommand("debug")
     truthy(printedAny("Names: UnitName = Test Char"), "debug lists the player's name lookups")
+end
+
+---------------------------------------------------------------------------
+-- Donation history, roster view and promotions
+---------------------------------------------------------------------------
+
+local function ledgerMsgs(prefix)
+    local out = {}
+    for _, m in ipairs(S.sent) do if m.msg:sub(1, #prefix) == prefix then out[#out + 1] = m.msg end end
+    return out
+end
+
+do -- the same bank log read twice is not counted twice; new entries are added
+    local ns = fresh()
+    S.bankLog = { { "deposit", "Bob Smith", 20000, 0, 0, 0, 5 }, { "withdraw", "Bob Smith", 5000, 0, 0, 0, 3 } }
+    S.fire("GUILDBANKLOG_UPDATE")
+    S.fire("GUILDBANKLOG_UPDATE")
+    eq(#ns.Ledger().list, 2, "re-reading the same log adds nothing")
+    advance(1800)   -- half an hour later the ages read one hour on, give or take
+    S.bankLog = { { "deposit", "Bob Smith", 20000, 0, 0, 0, 6 }, { "withdraw", "Bob Smith", 5000, 0, 0, 0, 4 },
+        { "deposit", "Bob Smith", 20000, 0, 0, 0, 0 } }
+    S.fire("GUILDBANKLOG_UPDATE")
+    eq(#ns.Ledger().list, 3, "an hour's drift still matches; the new deposit is added")
+    local t = ns.LedgerTotals()["bob smith"]
+    eq(t.paidIn, 40000, "two deposits paid in")
+    eq(t.takenOut, 5000, "one withdrawal taken out")
+    eq(ns.Ledger().gapAt, nil, "no gap: the logs overlap")
+end
+
+do -- what one guildmate reports is not verified; two guildmates, or seeing it yourself, is
+    local ns = fresh()
+    local h = ns.Hour() - 2
+    local msg = "L|d,50000," .. h .. ",Cara Jones"
+    receive("Eve-Realm", msg)
+    eq(ns.LedgerTotals()["cara jones"], nil, "one report alone is not verified")
+    receive("Eve-Realm", msg)
+    eq(ns.LedgerTotals()["cara jones"], nil, "the same person reporting twice is still one")
+    receive("Dan-Realm", msg)
+    eq(ns.LedgerTotals()["cara jones"].paidIn, 50000, "a second guildmate verifies it")
+    eq(#ns.Ledger().list, 1, "and it is one entry, not three")
+    receive("Eve-Realm", "L|d,90000," .. (h + 1) .. ",Fay Lee")
+    S.bankLog = { { "deposit", "Fay Lee", 90000, 0, 0, 0, 1 } }
+    S.fire("GUILDBANKLOG_UPDATE")
+    eq(ns.LedgerTotals()["fay lee"].paidIn, 90000, "seeing it in the log yourself verifies it")
+end
+
+do -- bad history messages are ignored
+    local ns = fresh()
+    local h = ns.Hour()
+    receive("Eve-Realm", "L|x,5," .. h .. ",Bob")
+    receive("Eve-Realm", "L|d,abc," .. h .. ",Bob")
+    receive("Eve-Realm", "L|d,5," .. (h + 50) .. ",Bob")        -- in the future
+    receive("Eve-Realm", "L|d,0," .. h .. ",Bob")               -- nothing
+    receive("Eve-Realm", "L|d,5," .. h .. "," .. string.rep("x", 80))
+    eq(#ns.Ledger().list, 0, "nothing stored from bad entries")
+end
+
+do -- reading the log shares it with the guild, in messages that fit the size limit
+    local ns = fresh()
+    S.bankLog = {}
+    for i = 1, 25 do S.bankLog[i] = { "deposit", "Member Number" .. i, 1000 + i, 0, 0, 0, i } end
+    S.fire("GUILDBANKLOG_UPDATE")
+    advance(30)
+    local msgs = ledgerMsgs("L|")
+    truthy(#msgs >= 2, "split into several messages")
+    local longest = 0
+    for _, m in ipairs(msgs) do longest = math.max(longest, #m) end
+    truthy(longest <= 255, "every message fits the 255-byte limit")
+    local ns2 = fresh()
+    for _, m in ipairs(msgs) do receive("Eve-Realm", m) end
+    for _, m in ipairs(msgs) do receive("Dan-Realm", m) end
+    local total = 0
+    for _ in pairs(ns2.LedgerTotals()) do total = total + 1 end
+    eq(total, 25, "a guildmate rebuilds all 25 entries from the messages")
+end
+
+do -- own-bank mode shares no history
+    local ns = fresh()
+    ns.HandleCommand("dest bank")
+    S.bankLog = { { "deposit", "Bob Smith", 20000, 0, 0, 0, 5 } }
+    S.fire("GUILDBANKLOG_UPDATE")
+    advance(30)
+    eq(#ledgerMsgs("L|"), 0, "no history sent in own-bank mode")
+end
+
+do -- catching up: ask at login; one guildmate answers with first-hand entries, others stay quiet
+    local ns = fresh()
+    advance(16); advance(6)
+    eq(#ledgerMsgs("Q|"), 1, "catch-up requested after login")
+    S.bankLog = { { "deposit", "Bob Smith", 20000, 0, 0, 0, 5 } }
+    S.fire("GUILDBANKLOG_UPDATE")
+    advance(70); S.sent = {}
+    receive("New-Realm", "Q|0")
+    advance(13); advance(1)
+    eq(#ledgerMsgs("R|0|"), 1, "we answer a catch-up request")
+    S.sent = {}
+    receive("Other-Realm", "Q|0")
+    receive("Dan-Realm", "R|0|d,1,1,X")       -- someone else answered first
+    advance(13); advance(1)
+    eq(#ledgerMsgs("R|0|"), 0, "we stay quiet when someone else already answered")
+end
+
+do -- a gap is flagged when a new log does not overlap the history
+    local ns = fresh()
+    S.bankLog = { { "deposit", "Bob Smith", 20000, 0, 0, 0, 0 } }
+    S.fire("GUILDBANKLOG_UPDATE")
+    advance(3600 * 48)
+    S.bankLog = { { "deposit", "Cara Jones", 7000, 0, 0, 0, 1 } }
+    S.fire("GUILDBANKLOG_UPDATE")
+    truthy(ns.Ledger().gapAt, "possible gap recorded")
+end
+
+local ROSTER = {
+    { "Leeroy Mcbiff-Realm", "Player-1-0001", "Guild Master", 0 },
+    { "Bob Smith-Realm", "Player-1-0003", "Member", 3 },
+    { "Cara Jones-Realm", "Player-1-0004", "Officer", 1 },
+    { "Dan Brown-Realm", "Player-1-0005", "Initiate", 4 },
+}
+
+do -- roster view: every guild member is listed, donors or not
+    local ns = fresh({ unitName = "Leeroy", roster = ROSTER })
+    advance(4)
+    S.bankLog = { { "deposit", "Bob Smith", 20000, 0, 0, 0, 1 } }
+    S.fire("GUILDBANKLOG_UPDATE")
+    local rows = ns.BoardRows()
+    eq(#rows, 4, "all four members listed")
+    eq(rows[1].name, "Bob Smith", "the verified donor is first")
+    local dan = rowFor(ns, "Dan Brown")
+    truthy(dan and dan.inGuild and not dan.verified, "a non-donor is listed with nothing paid in")
+    ns.HandleCommand("board")
+    local b = _G.GuildCoffersBoard
+    eq(b.lines[1][2]._text, "Bob Smith", "board shows the donor")
+    truthy(b.lines[1][5]._text:find("2g", 1, true), "paid in shown")
+    eq(b.lines[4][5]._text, "-", "non-donor shows nothing paid in")
+    ns.HandleCommand("board")
+end
+
+do -- ratio of paid in to taken out
+    local ns = fresh({ roster = ROSTER })
+    advance(4)
+    S.bankLog = { { "deposit", "Bob Smith", 20000, 0, 0, 0, 3 }, { "withdraw", "Bob Smith", 40000, 0, 0, 0, 1 } }
+    S.fire("GUILDBANKLOG_UPDATE")
+    ns.HandleCommand("board")
+    local b = _G.GuildCoffersBoard
+    local line
+    for i = 1, 20 do if b.lines[i][2]._text == "Bob Smith" then line = b.lines[i] end end
+    truthy(line and line[7]._text:find("0.5", 1, true), "ratio 0.5 shown for taking out more than paying in")
+    ns.HandleCommand("board")
+end
+
+do -- scrolling a long roster
+    local big = {}
+    for i = 1, 45 do big[i] = { "Member " .. i .. "-Realm", "Player-1-" .. (100 + i), "Member", 3 } end
+    local ns = fresh({ roster = big })
+    advance(4)
+    ns.HandleCommand("board")
+    local b = _G.GuildCoffersBoard
+    truthy(b.footer._text:find("of 46", 1, true), "footer says how many there are")
+    b.scripts.OnMouseWheel(b, -1)
+    eq(b.lines[1][1]._text, 4, "scrolling moves the list")
+    ns.HandleCommand("board")
+end
+
+do -- promotions: officers only, threshold and window set in the UI, one click to promote
+    local promoted
+    local ns = fresh({ unitName = "Leeroy", roster = ROSTER })
+    _G.CanGuildPromote = function() return true end
+    _G.GuildPromote = function(name) promoted = name end
+    advance(4)
+    eq(ns.CanPromote(), true, "the guild master can promote")
+    S.bankLog = {
+        { "deposit", "Bob Smith", 20000, 0, 0, 0, 2 },      -- 2g, recent
+        { "deposit", "Dan Brown", 500, 0, 0, 0, 3 },        -- 5s, recent
+        { "deposit", "Cara Jones", 90000, 0, 0, 0, 1 },     -- officer: already just below you
+    }
+    S.fire("GUILDBANKLOG_UPDATE")
+    local list = ns.PromotionCandidates()
+    eq(#list, 2, "amount 'any': both members with a verified deposit (not the officer)")
+    eq(list[1].name, "Bob Smith", "biggest first")
+    ns.ShowPromotions()
+    local b = _G.GuildCoffersBoard
+    eq(b.amountText._text, "any", "amount shows 'any' at 0")
+    eq(b.daysText._text, "30 days", "window shows 30 days by default")
+    eq(b.lines[1][2]._text, "Bob Smith", "candidate listed")
+    eq(b.lines[1].promote._shown, true, "Promote button shown")
+    b.lines[1].promote.scripts.OnClick(b.lines[1].promote)
+    eq(promoted, "Bob Smith-Realm", "clicking Promote promotes that member (full name for the game)")
+    ns.db.promoAmount = 10000
+    ns.RefreshBoard()
+    eq(#ns.PromotionCandidates(), 1, "at 1g only Bob qualifies")
+    eq(b.amountText._text, "1g", "amount shown")
+    ns.db.promoDays = 0
+    ns.RefreshBoard()
+    eq(b.daysText._text, "all time", "0 days shows all time")
+    _G.CanGuildPromote = nil
+    _G.GuildPromote = nil
+    ns.HandleCommand("board")
+end
+
+do -- promotions are hidden from members who cannot promote
+    local ns = fresh({ unitName = "Bob", myGuid = "Player-1-0003", roster = ROSTER })
+    advance(4)
+    eq(ns.CanPromote(), false, "a member cannot promote")
+    eq(#ns.PromotionCandidates(), 0, "no list for members")
+    ns.HandleCommand("promote")
+    truthy(printedAny("for guild members who are allowed to promote"), "the command explains why")
+    ns.HandleCommand("board")
+    eq(_G.GuildCoffersBoard.modeBtn._shown, false, "no Promotions button for members")
+    ns.HandleCommand("board")
 end
 
 real_print(string.format("%d checks passed, %d failed", passed, failures))

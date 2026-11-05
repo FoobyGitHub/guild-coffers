@@ -11,5 +11,6 @@
 Core.lua
 Tracker.lua
 Sync.lua
+History.lua
 UI.lua
 Board.lua

@@ -2,14 +2,16 @@
 
 A simple, passive guild tax for **World of Warcraft: Forever**. Choose a percentage, and Guild Coffers keeps count of the gold you receive and donates your share to the guild bank when you open it.
 
-> **Alpha.** The guild bank deposit, the vendor/mailbox summary and the leaderboard and own-bank deposit have not been tested in the live client yet. Please report any problems.
+> **Alpha.** The guild bank deposit has been tested in the live client. Donation history sharing, the promotion helper and own-bank deposits have not been tested yet. Please report any problems.
 
 ## What it does
 
 - Tracks gold from loot, quests, vendors and mail, and works out your share.
 - Deposits what you owe when you open the guild bank (or, if you choose, your own bank). Gold you deposit by hand while it is open is credited too.
 - Never takes you below the minimum you set: a deposit stops at your "Always keep" amount and the rest stays owed for next time.
-- Shows a guild leaderboard of who uses the addon, their rate and what they have donated. Players whose deposits appear in the guild bank log are marked **Verified**; other totals are reported by each player's own addon.
+- Shows a guild leaderboard of every member: what they have paid in and taken out of the guild bank (verified from the bank log), the ratio between the two, and each addon user's rate and reported total.
+- Keeps a donation history from the guild bank log, shared between guildmates, so it builds up even though the game's log only holds recent entries.
+- Officers get a **Promotions** list of members whose verified deposits reach an amount they choose, with a one-click Promote button.
 - Ignores trades and gold you take out of a bank.
 
 ## Settings
@@ -44,6 +46,7 @@ Open them with `/coffers`, or ESC → Options → AddOns → Guild Coffers.
 | `/coffers dest guild` / `bank` | Deposit to the guild bank (default) or your own bank |
 | `/coffers log` | At the guild bank: report what its money log holds (for bug reports) |
 | `/coffers board` | Open the guild leaderboard |
+| `/coffers promote` | Officers: members ready for promotion |
 | `/coffers defaults` | Put every setting back to its default (guild bank, 10%) |
 | `/coffers on` / `off` | Turn tracking on or off |
 | `/coffers hud` | Show or hide the counter |
@@ -52,13 +55,13 @@ Open them with `/coffers`, or ESC → Options → AddOns → Guild Coffers.
 | `/coffers deposit` | Deposit now (guild bank must be open) |
 | `/coffers debug` | Compatibility report, handy for bug reports |
 
-## Planned
+## Leaderboard and promotions
 
-Waiting until a guild exists to test against:
-
-- **Donation history:** track deposits and withdrawals from the guild bank log, shared between guildmates, so the leaderboard can show who pays in and who takes out.
-- **Promotion helper (officers only):** a "Ready for promotion" list of members whose verified deposits reach an amount you set in the settings (0 means any verified donation). An officer promotes them with one click in the addon. Nothing is promoted automatically, and what each rank can do stays in Blizzard's guild settings.
-- **Roster view:** guildmates with no donations, so the leaderboard shows who has not paid in as well.
+- **Paid in / Taken out:** from the guild bank log. Each player who opens the guild bank records what the log shows and shares it with guildmates, and everyone merges it into one history. An entry counts once it is **verified**: you saw it in the log yourself, or two different guildmates reported it. Repairs are not counted as taken out.
+- **Ratio:** paid in divided by taken out (green at 1 or more).
+- **Reported:** the total each player's own addon reports. Not verified.
+- **History:** starts when the first guildmate runs the addon. If nobody opens the guild bank for a long time, older activity can be missed; the leaderboard says when that may have happened.
+- **Promotions (officers and guild master):** set "verified deposits of at least" (any, or an amount) and "in the last" (days, or all time). Members below you who qualify are listed with a Promote button, which moves them up one rank. Nothing is promoted automatically, and what each rank can do stays in the guild's own rank and bank settings.
 
 ## Installing and reporting problems
 

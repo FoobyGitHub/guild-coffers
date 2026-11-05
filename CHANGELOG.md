@@ -5,6 +5,9 @@ All notable changes to Guild Coffers are recorded here.
 ## [Unreleased] (alpha)
 
 ### Added
+- Donation history: deposits, withdrawals and repairs from the guild bank log are recorded and shared between guildmates, so history builds up beyond what the game's log holds. Entries are matched so the same deposit is never counted twice. An entry is verified when you saw it yourself or two different guildmates reported it. Guildmates who log in later catch up automatically. A possible gap is flagged if a new log does not overlap the history.
+- Leaderboard shows every guild member (from the roster), with verified Paid in, Taken out and their Ratio, plus each addon user's rate and reported total. Scroll with the mouse wheel for big guilds.
+- Officer-only Promotions view (`/coffers promote`, or the Promotions button on the leaderboard): members below you whose verified deposits reach an amount you set (any, or a gold amount) in a window you set (days, or all time), each with a one-click Promote button. Nothing is promoted automatically.
 - Fixed: the leaderboard showed you twice when the guild bank log used your full name ("Leeroy Mcbiff") and the game gave only your first name. Full names now come from the guild roster, where your own entry is found by your character ID (GUID), so this works for every player. Each addon user also sends their full name with their totals (checked against the name the game gives for them, so nobody can claim another player's name). Guildmates sharing a first name stay separate. `/coffers debug` shows the full name found.
 - The deposit destination is now a dropdown ("The guild bank" / "My own bank (private)"), so exactly one is selected and switching back is one step. If a client cannot build the dropdown, two linked options are shown instead.
 - Opening the guild bank while set to your own bank now prints a reminder instead of doing nothing.
@@ -34,8 +37,3 @@ All notable changes to Guild Coffers are recorded here.
 - The guild bank is detected both from game events and by hooking Blizzard's guild bank frame, so the automatic deposit still fires if this client opens the bank differently.
 - `/coffers watch` logs guild bank events for 60 seconds, to show what a client does when the bank opens.
 - Initial project scaffold for WoW: Forever (interface 16001).
-
-### Not yet included
-- Shared donation and withdrawal history from the guild bank log (needs a guild to test; `/coffers log` is the first step).
-- Officer-only "Ready for promotion" list with a one-click promote, using a verified-deposit amount set in the UI (0 = any verified donation).
-- Guild roster view, so non-donors show on the leaderboard.
