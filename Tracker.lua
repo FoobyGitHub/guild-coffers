@@ -46,6 +46,10 @@ local function setOpen(kind, state)
         if open[kind] then return end
         open[kind] = true
         if kind == "guildbank" and ns.OnGuildBankOpened then ns.OnGuildBankOpened() end
+        if kind == "guildbank" and ns.db and ns.db.dest == "bank" and ns.Char().owed >= 1 then
+            ns.Print("deposits are set to your own bank, so nothing goes to the guild bank. "
+                .. "Switch with /coffers dest guild.")
+        end
         -- Deposit shortly after the chosen bank opens (the guild bank, or the player's own).
         local wanted = (ns.db and ns.db.dest == "bank") and "bank" or "guildbank"
         if kind == wanted then

@@ -5,6 +5,8 @@ All notable changes to Guild Coffers are recorded here.
 ## [Unreleased] (alpha)
 
 ### Added
+- The deposit destination is now two linked options ("Deposit to the guild bank" / "Deposit to my own bank"), so exactly one is selected and switching back is one click. "Share my donations" sits under the guild option.
+- Opening the guild bank while set to your own bank now prints a reminder instead of doing nothing.
 - Fixed: "Share my donations" and "Deposit to my own bank" could both look ticked. In own-bank mode the share box is now greyed out and unticked, and your choice returns when you switch back to the guild bank.
 - Choose where tax is deposited: the guild bank (default) or your own bank (the Warband bank), with a tick box or `/coffers dest guild|bank`. Own-bank savings are tracked separately, are not guild donations, and nothing is shared with the guild while it is on.
 - `/coffers log`: at the guild bank, reports how many entries its money log holds and of what kind, so the history feature can be designed around real data.

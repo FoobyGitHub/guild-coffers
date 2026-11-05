@@ -21,8 +21,8 @@ Open them with `/coffers`, or ESC → Options → AddOns → Guild Coffers.
 | Track gold and tax it | On |
 | Tax rate | 10% (change with -5, -, +, +5) |
 | Always keep (minimum gold) | None (buttons, or `/coffers reserve 100g`) |
-| Share my donations with the guild | On |
-| Deposit to my own bank instead | Off (deposits go to the guild bank) |
+| Share my donations (guild bank only) | On |
+| Deposit to | Guild bank (or "my own bank") |
 | Show the tax counter on screen | On |
 | Lock the counter's position | Off |
 | Show tax in chat | Off |

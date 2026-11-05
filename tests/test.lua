@@ -881,5 +881,42 @@ do -- sharing and own-bank deposits cannot both be on
     eq(p.share._disabled, false, "sharing is available again")
 end
 
+do -- opening the guild bank while set to own bank gives a reminder, not silence
+    local ns = fresh()
+    ns.HandleCommand("dest bank")
+    ns.Char().owed = 5 * GOLD
+    S.printed = {}
+    S.fire("GUILDBANKFRAME_OPENED"); advance(1)
+    truthy(printedAny("set to your own bank"), "reminder shown at the guild bank")
+    eq(#S.deposits, 0, "still nothing deposited to the guild bank")
+    S.fire("GUILDBANKFRAME_CLOSED")
+    local ns2 = fresh()
+    ns2.Char().owed = 5 * GOLD
+    S.printed = {}
+    S.fire("GUILDBANKFRAME_OPENED"); advance(1)
+    eq(printedAny("set to your own bank"), false, "no reminder in guild mode")
+    S.fire("GUILDBANKFRAME_CLOSED")
+end
+
+do -- destination: two linked options, only one selected
+    local ns = fresh()
+    ns.HandleCommand("window")
+    local p = ns.panels[#ns.panels]
+    eq(p.destGuild._checked, true, "guild bank selected by default")
+    eq(p.destBank._checked, false, "own bank not selected by default")
+    p.destBank.scripts.OnClick(p.destBank)
+    eq(ns.db.dest, "bank", "own bank chosen")
+    eq(p.destBank._checked, true, "own bank ticked")
+    eq(p.destGuild._checked, false, "guild bank unticked")
+    p.destGuild.scripts.OnClick(p.destGuild)
+    eq(ns.db.dest, "guild", "one click on guild bank switches straight back")
+    eq(p.destGuild._checked, true, "guild bank ticked")
+    eq(p.destBank._checked, false, "own bank unticked")
+    p.destGuild.scripts.OnClick(p.destGuild)
+    eq(p.destGuild._checked, true, "clicking the selected option keeps it selected")
+    ns.HandleCommand("dest bank")
+    eq(p.destBank._checked, true, "the command updates the options")
+end
+
 real_print(string.format("%d checks passed, %d failed", passed, failures))
 if failures > 0 then error("tests failed") end

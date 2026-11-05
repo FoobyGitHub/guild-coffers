@@ -90,7 +90,11 @@ local function RefreshPanel(p)
             p.share.label:SetTextColor(1, 1, 1)
         end
     end)
-    Safe("destination box", function() p.dest:SetChecked(ns.db.dest == "bank") end)
+    Safe("destination boxes", function()
+        local own = ns.db.dest == "bank"
+        p.destGuild:SetChecked(not own)
+        p.destBank:SetChecked(own)
+    end)
     Safe("chat box", function() p.chat:SetChecked(ns.db.showChat and true or false) end)
     Safe("tracking box", function() p.enabled:SetChecked(ns.db.enabled and true or false) end)
     Safe("counter box", function() p.showHud:SetChecked(ns.db.showHud and true or false) end)
@@ -154,21 +158,29 @@ local function BuildPanel(parent)
         ns.db.showChat = v
     end)
 
-    p.share = Check(p, -72, "Share my donations with the guild", function(v)
-        ns.db.share = v
-        if v and ns.ScheduleShare then ns.ScheduleShare() end
-    end, 290)
-    Tip(p.share, "Share my donations", "Lets guildmates see your rate and what you have donated on the leaderboard. "
-        .. "Not available while you deposit to your own bank, because that is private.")
-
-    p.dest = Check(p, -100, "Deposit to my own bank instead", function(v)
-        ns.db.dest = v and "bank" or "guild"
+    -- Where the tax goes: two linked options, so exactly one is selected.
+    p.destGuild = Check(p, -72, "Deposit to the guild bank", function()
+        ns.db.dest = "guild"
+        if ns.ScheduleShare then ns.ScheduleShare() end
         ns.RefreshUI()
     end, 290)
-    Tip(p.dest, "Deposit destination", "By default your tax goes to the guild bank when you open it. Tick this to "
-        .. "put it into your own bank instead (the Warband bank) when you open that, for players without a guild "
-        .. "or who prefer to save it. Own-bank deposits are not counted as guild donations or shared. "
-        .. "Also: /coffers dest guild or bank.")
+    Tip(p.destGuild, "Deposit to the guild bank", "Your tax is deposited into the guild bank when you open it, "
+        .. "and counts as a guild donation on the leaderboard.")
+
+    p.share = Check(p, -100, "Share my donations", function(v)
+        ns.db.share = v
+        if v and ns.ScheduleShare then ns.ScheduleShare() end
+    end, 314)
+    Tip(p.share, "Share my donations", "Lets guildmates see your rate and what you have donated on the leaderboard. "
+        .. "Only applies when depositing to the guild bank.")
+
+    p.destBank = Check(p, -128, "Deposit to my own bank", function()
+        ns.db.dest = "bank"
+        ns.RefreshUI()
+    end, 290)
+    Tip(p.destBank, "Deposit to my own bank", "Your tax is saved into your own bank (the Warband bank) when you open it, "
+        .. "for players without a guild or who prefer to save it. It is private: not a guild donation, "
+        .. "and nothing is shared. Also: /coffers dest guild or bank.")
 
     -- The rate is shown as plain text (like the status lines below) and changed with
     -- buttons or /coffers rate <0-100>, rather than with a typed-in box.
