@@ -46,9 +46,10 @@ local function Tip(frame, title, text)
     end)
 end
 
-local RESERVE_TIP = "A deposit never takes you below this amount. Anything held back stays owed "
-    .. "and is deposited later.\n\nThe buttons change it in steps. For an exact amount, type "
-    .. "/coffers reserve 5g 50s 20c in chat (g = gold, s = silver, c = copper; a plain number is gold)."
+local RESERVE_TIP = "Gold you keep for playing: training, repairs, travel. A deposit never takes you "
+    .. "below this amount; anything held back stays owed and is deposited later.\n\nThe buttons change "
+    .. "it in steps. For an exact amount, type /coffers spending 5g 50s in chat (g = gold, s = silver, "
+    .. "c = copper; a plain number is gold)."
 
 ---------------------------------------------------------------------------
 -- Refresh
@@ -167,8 +168,10 @@ local function BuildPanel(parent)
     local BANK_TIP = "Your tax is saved into your own bank (the Warband bank) when you open it, for players "
         .. "without a guild or who prefer to save it. It is private: not a guild donation, and nothing is "
         .. "shared. Also: /coffers dest guild or bank."
-    Label(p, "GameFontNormalSmall", "TOPLEFT", 292, -68, "Deposit to")
-    local builtDropdown = pcall(function()
+    -- Only offered where the game has an account bank to deposit into (Forever has none yet).
+    local ownBank = ns.OwnBankAvailable()
+    if ownBank then Label(p, "GameFontNormalSmall", "TOPLEFT", 292, -68, "Deposit to") end
+    local builtDropdown = ownBank and pcall(function()
         local dd = CreateFrame("DropdownButton", nil, p, "WowStyle1DropdownTemplate")
         if not dd.SetupMenu then
             dd:Hide()
@@ -196,7 +199,7 @@ local function BuildPanel(parent)
         end)
         p.destDropdown = dd
     end)
-    if not builtDropdown then
+    if ownBank and not builtDropdown then
         p.destGuild = Check(p, -84, "Deposit to the guild bank", function() SetDest("guild") end, 290)
         Tip(p.destGuild, "Deposit to the guild bank", GUILD_TIP)
         p.destBank = Check(p, -112, "Deposit to my own bank", function() SetDest("bank") end, 290)
@@ -239,18 +242,18 @@ local function BuildPanel(parent)
 
     -- Minimum to keep: a deposit never takes you below this. Buttons for quick changes;
     -- /coffers reserve 5g 50s sets an exact amount.
-    Label(p, "GameFontHighlight", "TOPLEFT", 20, -234, "Always keep")
+    Label(p, "GameFontHighlight", "TOPLEFT", 20, -234, "Spending money")
     local labelHit = CreateFrame("Frame", nil, p)
     labelHit:SetSize(100, 22)
     labelHit:SetPoint("TOPLEFT", 16, -230)
-    Tip(labelHit, "Always keep", RESERVE_TIP)
+    Tip(labelHit, "Spending money", RESERVE_TIP)
     p.reserveHit = labelHit
     local function ReserveButton(text, delta)
         local b = CreateFrame("Button", nil, p, "UIPanelButtonTemplate")
         b:SetSize(42, 22)
         b:SetText(text)
         b:SetScript("OnClick", function() ns.SetReserve((ns.db.reserve or 0) + delta) end)
-        Tip(b, "Always keep", RESERVE_TIP)
+        Tip(b, "Spending money", RESERVE_TIP)
         return b
     end
     local r1 = ReserveButton("-100g", -1000000)
@@ -266,7 +269,7 @@ local function BuildPanel(parent)
     local valueHit = CreateFrame("Frame", nil, p)
     valueHit:SetSize(90, 22)
     valueHit:SetPoint("LEFT", r3, "RIGHT", 6, 0)
-    Tip(valueHit, "Always keep", RESERVE_TIP)
+    Tip(valueHit, "Spending money", RESERVE_TIP)
     local r4 = ReserveButton("+1g", 10000)
     r4:SetPoint("LEFT", p.reserveText, "RIGHT", 6, 0)
     local r5 = ReserveButton("+10g", 100000)
@@ -304,7 +307,7 @@ local function BuildPanel(parent)
     m4:SetPoint("LEFT", m3, "RIGHT", 2, 0)
 
     local hint = Label(p, "GameFontHighlightSmall", "TOPLEFT", 130, -290,
-        "Hover for help. Exact amounts: /coffers reserve 5g, /coffers min 50s")
+        "Hover for help. Exact amounts: /coffers spending 50g, /coffers min 50s")
     hint:SetTextColor(0.7, 0.7, 0.7)
 
     p.owed = Label(p, "GameFontHighlight", "TOPLEFT", 20, -314)

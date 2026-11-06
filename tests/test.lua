@@ -129,7 +129,9 @@ local function installGlobals()
         SendAddonMessage = function(prefix, msg, channel) S.sent[#S.sent + 1] = { prefix = prefix, msg = msg, channel = channel } end,
     }
     _G.Enum.BankType = { Character = 0, Guild = 1, Account = 2 }
-    _G.C_Bank = S.noOwnBank and {} or { DepositMoney = function(bankType, amount)
+    _G.C_Bank = S.noOwnBank and { CanUseBank = function() return true end } or {
+        CanUseBank = function() return not S.noAccountBank end,
+        DepositMoney = function(bankType, amount)
         S.ownDeposits = S.ownDeposits or {}
         S.ownDeposits[#S.ownDeposits + 1] = { bankType = bankType, amount = amount }
         if S.ownDepositWorks ~= false then S.money = S.money - amount; S.fire("PLAYER_MONEY") end
@@ -633,7 +635,7 @@ do -- reserve: a deposit never takes you below the minimum
     ns.Char().owed = 10 * GOLD
     S.fire("GUILDBANKFRAME_OPENED"); advance(1)
     eq(#S.deposits, 0, "nothing deposited while below the reserve")
-    truthy(printedAny("keeping your 100g reserve"), "player told why nothing was deposited")
+    truthy(printedAny("keeping your 100g spending money"), "player told why nothing was deposited")
     eq(ns.Char().owed, 10 * GOLD, "owed gold stays owed")
     S.fire("GUILDBANKFRAME_CLOSED")
 end
@@ -824,7 +826,7 @@ do -- the custom-amount tooltip and the new panel controls
         AddLine = function(_, text) lines[#lines + 1] = text end }
     p.reserveHit.scripts.OnEnter(p.reserveHit)
     local joined = table.concat(lines, "\n")
-    truthy(joined:find("/coffers reserve", 1, true), "tooltip tells players how to type an exact amount")
+    truthy(joined:find("/coffers spending", 1, true), "tooltip tells players how to type an exact amount")
     truthy(joined:find("silver", 1, true), "tooltip explains g, s and c")
     truthy(p.boardBtn, "leaderboard button exists")
     eq(p.share, nil, "no separate share box: sharing follows the guild-bank choice")
@@ -875,7 +877,7 @@ do -- own bank: reserve applies, other bank spending is not a deposit, failures 
     ns3.HandleCommand("dest bank")
     ns3.Char().owed = 10 * GOLD
     S.fire("BANKFRAME_OPENED"); advance(1)
-    truthy(printedAny("no own-bank gold deposit"), "missing API is reported")
+    truthy(printedAny("no account (Warband) bank"), "missing API is reported")
     local ns4 = fresh()
     ns4.HandleCommand("dest bank")
     S.fire("BANKFRAME_OPENED")
@@ -1190,7 +1192,7 @@ do -- ratio of paid in to taken out
     local b = _G.GuildCoffersBoard
     local line
     for i = 1, 20 do if b.lines[i][2]._text == "Bob Smith" then line = b.lines[i] end end
-    truthy(line and line[7]._text:find("0.5", 1, true), "ratio 0.5 shown for taking out more than paying in")
+    truthy(line and line[7]._text:find("33%", 1, true), "ratio shown as a percentage (paid 2g, took 4g: 33%)")
     ns.HandleCommand("board")
 end
 
@@ -1271,7 +1273,7 @@ do -- only loot, vendor sales and auction sales are taxed
     eq(ns.Char().owed, GOLD, "looted gold is taxed")
     advance(2)
     plain(10 * GOLD); advance(2)
-    eq(ns.Char().owed, GOLD, "gold with no source (e.g. a quest reward) is not taxed")
+    eq(ns.Char().owed, GOLD, "gold with no source (e.g. a refund) is not taxed")
     plain(4 * GOLD); S.fire("CHAT_MSG_MONEY", "Your share of the loot is 4 Gold.")
     eq(ns.Char().owed, GOLD + 4000, "your share of group loot is taxed (message after the gold)")
     S.fire("CHAT_MSG_MONEY", "You loot 2 Gold"); plain(2 * GOLD)
@@ -1282,6 +1284,18 @@ do -- only loot, vendor sales and auction sales are taxed
     advance(2)
     S.fire("TRADE_SHOW"); plain(20 * GOLD); S.fire("TRADE_CLOSED")
     eq(ns.Char().owed, GOLD + 7000, "trades are not taxed")
+end
+
+do -- quest rewards are taxed
+    local ns = fresh()
+    S.fire("QUEST_COMPLETE"); plain(10 * GOLD); S.fire("QUEST_FINISHED")
+    eq(ns.Char().owed, GOLD, "reward received while the quest reward window is open")
+    advance(2)
+    plain(5 * GOLD); S.fire("QUEST_TURNED_IN", 123, 0, 5 * GOLD)
+    eq(ns.Char().owed, GOLD + 5000, "reward that arrives just before the turn-in event")
+    advance(2)
+    S.fire("QUEST_TURNED_IN", 124, 0, 2 * GOLD); plain(2 * GOLD)
+    eq(ns.Char().owed, GOLD + 7000, "reward that arrives just after it")
 end
 
 do -- mail: auction sales are taxed, mail from players (including your own alts) is not
@@ -1478,6 +1492,29 @@ do -- compact money text
     eq(ns.ShortCoin(1234567890), "123456g", "big amounts in gold only")
     eq(ns.ShortCoin(55000), "5g 50s", "gold and silver")
     eq(ns.ShortCoin(55), "55c", "small amounts in full")
+end
+
+do -- no account bank in the game: the own-bank option is hidden and cannot be chosen
+    local ns = fresh({ noAccountBank = true })
+    ns.HandleCommand("window")
+    local p = ns.panels[#ns.panels]
+    eq(p.destDropdown, nil, "no destination dropdown")
+    eq(p.destGuild, nil, "and no fallback boxes")
+    ns.HandleCommand("dest bank")
+    eq(ns.db.dest, "guild", "own bank cannot be chosen")
+    truthy(printedAny("no account (Warband) bank"), "the player is told why")
+    ns.db.dest = "bank"                       -- chosen on an older version
+    ns.Char().owed = 5 * GOLD
+    S.fire("GUILDBANKFRAME_OPENED"); advance(1)
+    eq(S.deposits[1], 5 * GOLD, "falls back to the guild bank")
+    S.fire("GUILDBANKFRAME_CLOSED")
+end
+
+do -- spending money command and wording
+    local ns = fresh()
+    ns.HandleCommand("spending 50g")
+    eq(ns.db.reserve, 50 * GOLD, "/coffers spending sets it")
+    truthy(printedAny("spending money set to 50g"), "confirmed in chat")
 end
 
 real_print(string.format("%d checks passed, %d failed", passed, failures))

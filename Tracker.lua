@@ -46,12 +46,14 @@ local function setOpen(kind, state)
         if open[kind] then return end
         open[kind] = true
         if kind == "guildbank" and ns.OnGuildBankOpened then ns.OnGuildBankOpened() end
-        if kind == "guildbank" and ns.db and ns.db.dest == "bank" and ns.Char().owed >= 1 then
+        if kind == "guildbank" and ns.db and ns.db.dest == "bank" and ns.OwnBankAvailable()
+            and ns.Char().owed >= 1 then
             ns.Print("deposits are set to your own bank, so nothing goes to the guild bank. "
                 .. "Switch with /coffers dest guild.")
         end
         -- Deposit shortly after the chosen bank opens (the guild bank, or the player's own).
-        local wanted = (ns.db and ns.db.dest == "bank") and "bank" or "guildbank"
+        local own = ns.db and ns.db.dest == "bank" and ns.OwnBankAvailable()
+        local wanted = own and "bank" or "guildbank"
         if kind == wanted then
             C_Timer.After(DEPOSIT_DELAY, function()
                 if open[wanted] then ns.TryDeposit(false) end
@@ -108,6 +110,7 @@ function ns.IsGuildBankOpen() return open.guildbank == true end
 
 function ns.TryDeposit(manual)
     if not ns.db then return end
+    if ns.db.dest == "bank" and not ns.OwnBankAvailable() then ns.db.dest = "guild" end
     local dest = (ns.db.dest == "bank") and "bank" or "guild"
     local kind = (dest == "bank") and "bank" or "guildbank"
     if not open[kind] then
@@ -130,7 +133,7 @@ function ns.TryDeposit(manual)
     if amount < 1 then
         if reserve > 0 and c.owed >= 1 and money - reserve < 1 then
             -- Owed gold is waiting only because of the reserve: say so, even on the automatic path.
-            ns.Print("keeping your " .. ns.ReserveText(reserve) .. " reserve, so nothing deposited. "
+            ns.Print("keeping your " .. ns.ReserveText(reserve) .. " spending money, so nothing deposited. "
                 .. "Still owed: " .. ns.CoinText(c.owed) .. ".")
         elseif manual then
             if c.owed > 0 then
@@ -215,10 +218,11 @@ end
 ---------------------------------------------------------------------------
 -- Which gold counts as income. Only genuine earnings are taxed:
 --   * gold you loot (from a loot window, or your share of a group's loot),
+--   * quest rewards,
 --   * vendor sales (gold received while a merchant window is open),
 --   * auction house sales (the "Auction successful" mail).
 -- Everything else is left alone: trades, mail from players (including your own
--- characters), quest rewards, refunds and bank withdrawals.
+-- characters), refunds and bank withdrawals.
 ---------------------------------------------------------------------------
 
 local LOOT_MSG_WAIT = 1.0   -- seconds to wait for the loot chat message after gold arrives
@@ -285,7 +289,8 @@ local function Tax(delta)
 end
 
 local function OnLootMessage()
-    -- Your loot, or your share of a group's loot. The gold may already have arrived.
+    -- Your loot, your share of a group's loot, or a quest reward. The gold may already have
+    -- arrived just before this signal.
     graceUntil.lootmsg = now() + LOOT_MSG_WAIT
     local waiting = pendingGains
     pendingGains = {}
@@ -308,10 +313,10 @@ local function OnMoneyChanged()
         if isOpen("guildbank") or isOpen("bank") or isOpen("trade") then return end   -- withdrawals, trades
         if isOpen("mail") then
             if MailGainIsSale(delta) then Tax(delta) end      -- auction sales only
-        elseif isOpen("merchant") or isOpen("loot") or isOpen("lootmsg") then
-            Tax(delta)                                         -- vendor sales and loot
+        elseif isOpen("merchant") or isOpen("loot") or isOpen("lootmsg") or isOpen("quest") then
+            Tax(delta)                                         -- vendor sales, loot, quest rewards
         else
-            -- No clear source yet. If the loot chat message follows, it was loot.
+            -- No clear source yet. If a loot message or quest turn-in follows, it was income.
             local p = { delta = delta }
             pendingGains[#pendingGains + 1] = p
             C_Timer.After(LOOT_MSG_WAIT, function()
@@ -338,6 +343,9 @@ ns.On("PLAYER_LOGIN", function()
 end)
 ns.On("PLAYER_MONEY", OnMoneyChanged)
 ns.On("CHAT_MSG_MONEY", OnLootMessage)
+ns.On("QUEST_TURNED_IN", OnLootMessage)
+ns.On("QUEST_COMPLETE", function() setOpen("quest", true) end)    -- the quest reward window
+ns.On("QUEST_FINISHED", function() setOpen("quest", false) end)
 ns.On("LOOT_OPENED", function() setOpen("loot", true) end)
 ns.On("LOOT_CLOSED", function() setOpen("loot", false) end)
 ns.On("MAIL_INBOX_UPDATE", ScanInbox)

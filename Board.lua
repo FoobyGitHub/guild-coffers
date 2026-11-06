@@ -45,12 +45,14 @@ local function Money(v, verified)
     return ns.ShortCoin(v)
 end
 
+-- Paid in as a share of all the gold they moved: 100% = only paid in, 50% = took out as much
+-- as they paid in, 0% = only took out.
 local function RatioText(r)
     local paid, taken = r.paidIn or 0, r.takenOut or 0
-    if taken <= 0 then return paid > 0 and "|cff40ff40all in|r" or "-" end
-    local ratio = paid / taken
-    local colour = ratio >= 1 and "|cff40ff40" or "|cffff6060"
-    return colour .. string.format("%.1f", ratio) .. "|r"
+    if paid + taken <= 0 then return "-" end
+    local pct = math.floor(paid / (paid + taken) * 100 + 0.5)
+    local colour = pct >= 50 and "|cff40ff40" or "|cffff6060"
+    return colour .. pct .. "%|r"
 end
 
 local function SetHeadings(cols)
@@ -106,7 +108,8 @@ local function RefreshBoardMode()
     SetHeadings(LEADER_COLS)
     PlaceCells(LEADER_COLS)
     board.note:SetText("Paid in and Taken out are verified from the guild bank log (seen by you or reported by "
-        .. "two guildmates). Reported is each player's own addon total. Repairs are not counted as taken out.")
+        .. "two guildmates). Ratio: paid in as a share of all they moved (100% = only paid in). Reported is each "
+        .. "player's own addon total. Repairs are not counted as taken out.")
     local rows = ns.BoardRows()
     offset = math.max(0, math.min(offset, #rows - ROWS))
     for i = 1, ROWS do

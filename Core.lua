@@ -166,6 +166,15 @@ function ns.Char()
     return c
 end
 
+-- Can this client put gold in an account-wide (Warband) bank? Forever has no account bank yet,
+-- so the "own bank" option stays hidden until the game reports one is usable.
+function ns.OwnBankAvailable()
+    local bankType = Enum and Enum.BankType and Enum.BankType.Account
+    if not (bankType and C_Bank and C_Bank.DepositMoney and C_Bank.CanUseBank) then return false end
+    local okU, usable = pcall(C_Bank.CanUseBank, bankType)
+    return okU and usable == true
+end
+
 -- The rate in use: the guild's rate (from the guild info text) unless the player has chosen
 -- their own.
 function ns.Rate()
@@ -232,7 +241,7 @@ end
 
 local function PrintStatus()
     local c = ns.Char()
-    ns.Print(string.format("tax %d%% (%s). Collected since last deposit: %s. Keep aside: %s. Total donated: %s. Always keep: %s.",
+    ns.Print(string.format("tax %d%% (%s). Collected since last deposit: %s. Keep aside: %s. Total donated: %s. Spending money: %s.",
         ns.Rate(), ns.db.enabled and "on" or "off",
         ns.CoinText(c.collected or 0), ns.OwedText(c.owed), ns.CoinText(c.donated),
         ns.ReserveText(ns.db.reserve)))
@@ -250,7 +259,7 @@ local function PrintHelp()
     print("  /coffers rate <0-100> - set your own tax percentage")
     print("  /coffers rate guild - use the rate your guild's officers set")
     print("  /coffers min <amount> - deposit automatically only once this much is owed (default 1g)")
-    print("  /coffers reserve <amount> - gold to always keep, e.g. 100g or 5g 50s (0 = none)")
+    print("  /coffers spending <amount> - spending money deposits never touch, e.g. 50g (0 = none)")
     print("  /coffers reset - set the amount owed back to zero")
     print("  /coffers dest guild | bank - deposit to the guild bank (default) or your own bank")
     print("  /coffers log - at the guild bank: report what its money log holds (for bug reports)")
@@ -284,6 +293,7 @@ local function PrintDebug()
     local unknown = {}
     for event in pairs(ns.unknownEvents or {}) do unknown[#unknown + 1] = event end
     table.sort(unknown)
+    print("  Account (Warband) bank usable: " .. yn(ns.OwnBankAvailable()))
     print("  Own-bank deposit (C_Bank.DepositMoney): " .. yn(C_Bank and C_Bank.DepositMoney)
         .. ", Enum.BankType.Account: " .. yn(Enum and Enum.BankType and Enum.BankType.Account))
     pcall(function()
@@ -346,12 +356,12 @@ function ns.HandleCommand(input)
         else
             ns.Print("usage: /coffers rate <0-100>")
         end
-    elseif cmd == "reserve" then
+    elseif cmd == "reserve" or cmd == "spending" then
         local copper = ns.ParseMoney(rest)
         if copper and ns.SetReserve(copper) then
-            ns.Print("always keeping at least " .. ns.ReserveText(ns.db.reserve) .. " when depositing.")
+            ns.Print("spending money set to " .. ns.ReserveText(ns.db.reserve) .. ". Deposits never touch it.")
         else
-            ns.Print("usage: /coffers reserve <amount>, e.g. 100g or 5g 50s 20c (0 for none). Current: "
+            ns.Print("usage: /coffers spending <amount>, e.g. 50g or 5g 50s (0 for none). Current: "
                 .. ns.ReserveText(ns.db.reserve))
         end
     elseif cmd == "board" or cmd == "top" or cmd == "leaderboard" then
@@ -367,6 +377,9 @@ function ns.HandleCommand(input)
     elseif cmd == "dest" then
         local want = rest:lower()
         if want == "guild" then ns.db.dest = "guild"
+        elseif (want == "bank" or want == "own" or want == "personal") and not ns.OwnBankAvailable() then
+            ns.Print("this game has no account (Warband) bank to deposit into yet, so deposits go to the guild bank.")
+            return
         elseif want == "bank" or want == "own" or want == "personal" then ns.db.dest = "bank"
         else
             ns.Print("usage: /coffers dest guild | bank. Now: " .. (ns.db.dest == "bank" and "your own bank" or "the guild bank"))
