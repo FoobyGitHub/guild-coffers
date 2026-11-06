@@ -2,7 +2,7 @@
 
 A simple, passive guild tax for **World of Warcraft: Forever**. Choose a percentage, and Guild Coffers keeps count of the gold you earn and donates your share to the guild bank when you open it.
 
-> **Alpha.** Tested in the live client: tracking, the guild bank deposit, the leaderboard and the bank log. Not yet tested: quest and auction income, the guild rate, the officer promotion helper and history sharing between several players. Please report any problems.
+> **Beta.** Tested in the live client: tracking, the guild bank deposit, the leaderboard, the promotions view and the bank log. Not yet tested in the live client: quest and auction income, the guild rate, clicking Promote, and history sharing between several players. Please report any problems.
 
 ## What it does
 

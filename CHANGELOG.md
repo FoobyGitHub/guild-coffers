@@ -2,9 +2,9 @@
 
 All notable changes to Guild Coffers are recorded here.
 
-## [Unreleased]
+## v0.4.3-beta (2026-11-06)
 
-First public version.
+First public version (beta).
 
 ### Tax
 - Takes your chosen share of gold you earn: looted gold (including your share of group loot), quest rewards, vendor sales and auction house sales. Trades, mail from players (including your own characters), auction outbid refunds and bank withdrawals are not taxed.
