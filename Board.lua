@@ -4,7 +4,7 @@ local _, ns = ...
 
 local ROWS = 20
 local ROW_H = 18
-local TOP = -112           -- first row
+local TOP = -130           -- first row (below the notes and promotion settings)
 local board
 local mode = "board"       -- "board" or "promote"
 local offset = 0
