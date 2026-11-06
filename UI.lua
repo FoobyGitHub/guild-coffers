@@ -277,17 +277,17 @@ local function BuildPanel(parent)
     local MIN_TIP = "The automatic deposit waits until you owe at least this much, so the guild bank "
         .. "log is not filled with tiny deposits. \"Deposit now\" ignores it. 0 deposits every time.\n\n"
         .. "For an exact amount, type /coffers min 50s in chat (g = gold, s = silver, c = copper)."
-    Label(p, "GameFontHighlight", "TOPLEFT", 20, -266, "Deposit once owed")
+    Label(p, "GameFontHighlight", "TOPLEFT", 20, -266, "Min. deposit")
     local minHit = CreateFrame("Frame", nil, p)
     minHit:SetSize(110, 22)
     minHit:SetPoint("TOPLEFT", 16, -262)
-    Tip(minHit, "Deposit once owed", MIN_TIP)
+    Tip(minHit, "Minimum deposit", MIN_TIP)
     local function MinButton(text, delta)
         local b = CreateFrame("Button", nil, p, "UIPanelButtonTemplate")
         b:SetSize(42, 22)
         b:SetText(text)
         b:SetScript("OnClick", function() ns.SetMinDeposit((ns.db.minDeposit or 0) + delta) end)
-        Tip(b, "Deposit once owed", MIN_TIP)
+        Tip(b, "Minimum deposit", MIN_TIP)
         return b
     end
     local m1 = MinButton("-1g", -10000)
@@ -392,7 +392,7 @@ end
 
 local function BuildWindow()
     local w = CreateFrame("Frame", "GuildCoffersWindow", UIParent, "BasicFrameTemplateWithInset")
-    w:SetSize(520, 480)
+    w:SetSize(520, 500)
     w:SetPoint("CENTER")
     w:SetMovable(true)
     w:EnableMouse(true)

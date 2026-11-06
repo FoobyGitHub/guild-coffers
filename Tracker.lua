@@ -123,6 +123,7 @@ function ns.TryDeposit(manual)
     -- The automatic deposit waits until enough is owed, so tiny amounts do not fill the
     -- guild bank log. "Deposit now" ignores this.
     if not manual and c.owed < (ns.db.minDeposit or 0) then return end
+    if not manual and not ns.db.enabled then return end   -- tracking off: no automatic deposits
     -- Never take the player below their chosen minimum.
     local reserve = ns.db.reserve or 0
     local amount = math.floor(math.min(c.owed, money - reserve))
@@ -223,47 +224,55 @@ end
 local LOOT_MSG_WAIT = 1.0   -- seconds to wait for the loot chat message after gold arrives
 local pendingGains = {}     -- gold that arrived with no clear source, waiting for a loot message
 
--- Money-bearing mail seen in the inbox, as two snapshots (the newest and the one before),
--- so a payment can be matched even if the inbox refreshes before the gold arrives.
-local mailNow, mailBefore = {}, {}
+-- Auction-sale mail seen in the inbox while the mailbox is open. Kept until its gold arrives
+-- (or the mailbox closes), so it still matches if the inbox refreshes first.
+local salePool, saleSeen = {}, {}
 local saleSubject           -- "Auction successful: (.+)" built from the game's own text
 
 local function IsSaleMail(index, subject)
     if GetInboxInvoiceInfo then
         local okI, invoiceType = pcall(GetInboxInvoiceInfo, index)
-        if okI and invoiceType == "seller" then return true end
+        if okI and not ns.isSecret(invoiceType) and invoiceType == "seller" then return true end
     end
     if not saleSubject and type(AUCTION_SOLD_MAIL_SUBJECT) == "string" then
         saleSubject = "^" .. AUCTION_SOLD_MAIL_SUBJECT:gsub("([%%%(%)%.%+%-%*%?%[%]%^%$])", "%%%1"):gsub("%%%%s", ".+")
     end
-    return saleSubject ~= nil and type(subject) == "string" and subject:find(saleSubject) ~= nil
+    return saleSubject ~= nil and type(subject) == "string" and not ns.isSecret(subject)
+        and subject:find(saleSubject) ~= nil
 end
+
+local function ResetMail() salePool, saleSeen = {}, {} end
 
 local function ScanInbox()
     if not (GetInboxNumItems and GetInboxHeaderInfo) then return end
     local okN, n = pcall(GetInboxNumItems)
     if not okN or ns.isSecret(n) or type(n) ~= "number" then return end
-    local snap = {}
+    local count = {}
     for i = 1, n do
-        local okH, _, _, _, subject, money = pcall(GetInboxHeaderInfo, i)
-        if okH and not ns.isSecret(money) and type(money) == "number" and money > 0 then
-            snap[#snap + 1] = { money = money, sale = IsSaleMail(i, subject) }
-        end
-    end
-    mailBefore, mailNow = mailNow, snap
-end
-
--- Is this payment an auction house sale? Matched by amount against the inbox.
-local function MailGainIsSale(amount)
-    for _, list in ipairs({ mailNow, mailBefore }) do
-        for i, m in ipairs(list) do
-            if m.money == amount then
-                table.remove(list, i)
-                return m.sale
+        local okH, _, _, sender, subject, money = pcall(GetInboxHeaderInfo, i)
+        if okH and not ns.isSecret(money) and type(money) == "number" and money > 0
+            and not ns.isSecret(sender) and not ns.isSecret(subject) and IsSaleMail(i, subject) then
+            -- Identify each sale mail so a rescan does not add it twice.
+            local base = tostring(sender) .. "|" .. tostring(subject) .. "|" .. money
+            count[base] = (count[base] or 0) + 1
+            local key = base .. "#" .. count[base]
+            if not saleSeen[key] then
+                saleSeen[key] = true
+                salePool[#salePool + 1] = money
             end
         end
     end
-    return false   -- not recognised: treat as ordinary mail, not taxed
+end
+
+-- Is this payment an auction house sale? Matched by amount; each sale matches only once.
+local function MailGainIsSale(amount)
+    for i, money in ipairs(salePool) do
+        if money == amount then
+            table.remove(salePool, i)
+            return true
+        end
+    end
+    return false   -- player mail, refunds and anything unrecognised: not taxed
 end
 
 local function Tax(delta)
@@ -311,14 +320,14 @@ local function OnMoneyChanged()
                 end
             end)
         end
-    elseif pending and pending.dest == "bank" and open.bank then
-        -- Our own-bank deposit leaving. (Other gold spent at a bank is not counted.)
-        RecordDeposit(math.min(-delta, pending.amount), "bank")
-    elseif open.guildbank then
-        -- Gold out while the guild bank is open is a deposit (ours or the player's own).
-        local amount = -delta
-        if pending then amount = math.min(amount, pending.amount) end
-        RecordDeposit(amount, "guild")
+    elseif pending then
+        -- Our deposit leaving. Credited even if the window was closed a moment before the
+        -- gold actually left.
+        RecordDeposit(math.min(-delta, pending.amount), pending.dest)
+    elseif isOpen("guildbank") and not isOpen("buytab") then
+        -- Gold out while the guild bank is open is the player's own deposit
+        -- (unless they are buying a bank tab).
+        RecordDeposit(-delta, "guild")
     end
 end
 
@@ -332,7 +341,12 @@ ns.On("CHAT_MSG_MONEY", OnLootMessage)
 ns.On("LOOT_OPENED", function() setOpen("loot", true) end)
 ns.On("LOOT_CLOSED", function() setOpen("loot", false) end)
 ns.On("MAIL_INBOX_UPDATE", ScanInbox)
-ns.On("MAIL_SHOW", function() mailNow, mailBefore = {}, {} ScanInbox() end)
+-- Buying a guild bank tab is spending, not a donation.
+if hooksecurefunc and BuyGuildBankTab then
+    hooksecurefunc("BuyGuildBankTab", function() graceUntil.buytab = now() + 3 end)
+end
+ns.On("MAIL_SHOW", function() ResetMail() ScanInbox() end)
+ns.On("MAIL_CLOSED", ResetMail)
 ns.On("MERCHANT_SHOW", function() setOpen("merchant", true) end)
 ns.On("MERCHANT_CLOSED", function() setOpen("merchant", false) end)
 ns.On("MAIL_SHOW", function() setOpen("mail", true) end)

@@ -42,7 +42,7 @@ end
 
 local function Money(v, verified)
     if not v or v <= 0 then return verified and "0c" or "-" end
-    return ns.CoinText(v)
+    return ns.ShortCoin(v)
 end
 
 local function RatioText(r)
@@ -116,7 +116,7 @@ local function RefreshBoardMode()
             line[1]:SetText(i + offset)
             line[2]:SetText(r.name .. (r.me and " (you)" or ""))
             line[3]:SetText(r.rate and (r.rate .. "%") or "-")
-            line[4]:SetText(r.usesAddon and ns.CoinText(r.donated or 0) or "-")
+            line[4]:SetText(r.usesAddon and ns.ShortCoin(r.donated or 0) or "-")
             line[5]:SetText(r.verified and ("|cff40ff40" .. Money(r.paidIn) .. "|r") or "-")
             line[6]:SetText(Money(r.takenOut))
             line[7]:SetText(RatioText(r))
@@ -135,7 +135,7 @@ local function RefreshPromoteMode()
     PlaceCells(PROMO_COLS)
     board.note:SetText("")
     local days = ns.db.promoDays or 30
-    board.amountText:SetText((ns.db.promoAmount or 0) > 0 and ns.CoinText(ns.db.promoAmount) or "any")
+    board.amountText:SetText((ns.db.promoAmount or 0) > 0 and ns.ShortCoin(ns.db.promoAmount) or "any")
     board.daysText:SetText(days > 0 and (days .. " days") or "all time")
     local list = ns.PromotionCandidates()
     offset = math.max(0, math.min(offset, #list - ROWS))
@@ -145,7 +145,7 @@ local function RefreshPromoteMode()
             line[1]:SetText(i + offset)
             line[2]:SetText(r.name)
             line[3]:SetText(r.rankName or "?")
-            line[4]:SetText("|cff40ff40" .. ns.CoinText(r.paidIn) .. "|r")
+            line[4]:SetText("|cff40ff40" .. ns.ShortCoin(r.paidIn) .. "|r")
             line[5]:SetText(DateText(r.lastPaid))
             line.promote.target = r.name
             line.promote:Show()
@@ -243,7 +243,8 @@ local function Build()
     local d4 = Btn("+7", 36, function() SetDays(7) end)
     d4:SetPoint("LEFT", d3, "RIGHT", 2, 0)
     w.promoHint = Ctl(Cell(w, "GameFontHighlightSmall", 14, -78, 560, "LEFT"))
-    w.promoHint:SetText("An amount of \"any\" lists everyone with at least one verified deposit. 0 days means all time.")
+    w.promoHint:SetText("Counts deposits you saw in the bank log yourself, or that three guildmates reported. "
+        .. "\"any\" = at least one; 0 days = all time.")
 
     w.heads = {}
     for i = 1, #LEADER_COLS do
@@ -260,6 +261,11 @@ local function Build()
         p:SetPoint("TOPLEFT", w, "TOPLEFT", 480, TOP - (i - 1) * ROW_H + 3)
         p:SetText("Promote")
         p:SetScript("OnClick", function(self)
+            -- After a promotion the list moves up; ignore clicks for a moment so a double-click
+            -- cannot promote the next member by accident.
+            local t = GetTime and GetTime() or 0
+            if (w.promoteLock or 0) > t then return end
+            w.promoteLock = t + 1.5
             if self.target then ns.Promote(self.target) end
         end)
         p:Hide()

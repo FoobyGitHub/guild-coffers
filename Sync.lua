@@ -10,7 +10,8 @@ local PREFIX = "GuildCoffers"
 local PROTOCOL = 1
 local MIN_GAP = 30          -- seconds between our own broadcasts
 local LOGIN_DELAY = 15      -- wait after login before announcing ourselves
-local MAX_BOARD = 300       -- most guildmates kept
+local MAX_BOARD = 1000      -- most guildmates kept
+local HELLO_GAP = 600       -- answer a login "hello" only if we have not shared for 10 minutes
 local MAX_LOG_TAB = 8       -- the money log is the tab after the last item tab
 local lastSent = -1000
 local sharePending = false
@@ -49,7 +50,12 @@ local roster = {}   -- full names of guild members (realm removed)
 ns.roster = roster
 ns.rosterInfo = {}  -- [lower-case full name] = { name, raw, rankName, rankIndex }
 
-local function pack(...) return { n = select("#", ...), ... } end
+
+-- Name, rank and GUID of one roster member (the GUID is the 17th value).
+local function RosterRow(i)
+    local name, rankName, rankIndex, _, _, _, _, _, _, _, _, _, _, _, _, _, guid = GetGuildRosterInfo(i)
+    return name, rankName, rankIndex, guid
+end
 
 function ns.ScanRoster()
     if not (GetNumGuildMembers and GetGuildRosterInfo) or not ns.db then return end
@@ -60,26 +66,22 @@ function ns.ScanRoster()
     for i = #roster, 1, -1 do roster[i] = nil end
     local info = {}
     for i = 1, n do
-        local r = pack(pcall(GetGuildRosterInfo, i))
-        if r[1] and ok(r[2]) and type(r[2]) == "string" and r[2] ~= "" then
-            local full = Short(r[2])
+        local okR, raw, rankName, rankIndex, guid = pcall(RosterRow, i)
+        if okR and ok(raw) and type(raw) == "string" and raw ~= "" then
+            local full = Short(raw)
             roster[#roster + 1] = full
             info[full:lower()] = {
-                name = full, raw = r[2],
-                rankName = ok(r[3]) and tostring(r[3]) or "?",
-                rankIndex = ok(r[4]) and tonumber(r[4]) or nil,
+                name = full, raw = raw,
+                rankName = ok(rankName) and tostring(rankName) or "?",
+                rankIndex = ok(rankIndex) and tonumber(rankIndex) or nil,
             }
-            if myGuid then
-                for j = 3, r.n do
-                    if ok(r[j]) and r[j] == myGuid then
-                        ns.Char().fullName = full
-                        ns.myRankIndex = info[full:lower()].rankIndex
-                        break
-                    end
-                end
+            if myGuid and ok(guid) and guid == myGuid then
+                ns.Char().fullName = full
+                ns.myRankIndex = info[full:lower()].rankIndex
             end
         end
     end
+    ns.promoteSent = nil   -- ranks are fresh: promotions can be offered again
     ns.rosterInfo = info
     -- Lookups for FullName: exact names, and first names that belong to exactly one member.
     local exact, first = {}, {}
@@ -105,6 +107,23 @@ function ns.FullName(name)
     full = ns.rosterFirst and ns.rosterFirst[n]
     if full then return full end   -- false (two members share it) falls through
     return name
+end
+
+-- Is this name a member of the guild? (True when the roster has not loaded yet.)
+function ns.IsGuildMember(name)
+    if #roster == 0 then return true end
+    local n = Norm(name)
+    return (ns.rosterExact and ns.rosterExact[n]) ~= nil or (ns.rosterFirst and ns.rosterFirst[n]) and true or false
+end
+
+-- Is this sender ourselves? Exact match on any name the game gives for us (used for our own
+-- messages coming back; no first-name guessing).
+function ns.IsOwnSender(who)
+    local n = Norm(who)
+    for _, mine in ipairs(ns.MyNames()) do
+        if Norm(mine) == n then return true end
+    end
+    return false
 end
 
 -- Every name the game gives for the player, most complete first.
@@ -144,7 +163,10 @@ end
 local function Send(msg)
     local fn = (C_ChatInfo and C_ChatInfo.SendAddonMessage) or SendAddonMessage
     if not fn or not IsInGuild or not IsInGuild() then return false end
-    return pcall(fn, PREFIX, msg, "GUILD")
+    local okS, result = pcall(fn, PREFIX, msg, "GUILD")
+    -- Newer clients return a result code; anything other than 0 (success) means it was not sent.
+    if okS and type(result) == "number" and result ~= 0 then return false end
+    return okS
 end
 
 ns.SendGuild = Send
@@ -201,17 +223,18 @@ local function OnAddonMessage(_, prefix, text, channel, sender)
 
     local kind = text:match("^(%w+)|")
     if kind == "H" then
-        if ns.IsMe(who) then return end
+        if ns.IsOwnSender(who) then return end
         -- Someone just logged in and wants to know who is using the addon. Answer after a
-        -- random pause so a whole guild does not reply in the same second.
-        if ns.db.dest ~= "bank" and now() - lastSent > 10 then
+        -- random pause, and only if we have not shared recently (they will hear us then),
+        -- so a login does not set off the whole guild.
+        if ns.db.dest ~= "bank" and now() - lastSent > HELLO_GAP then
             C_Timer.After(2 + (math.random and math.random() or 0.5) * 8, function() ns.ShareNow() end)
         end
         return
     end
     if kind == "L" or kind == "R" or kind == "Q" then
+        if ns.IsOwnSender(who) then return end
         local observer = ns.FullName(who)
-        if ns.IsMe(observer) then return end
         if ns.OnLedgerMessage then ns.OnLedgerMessage(kind, text, observer) end
         return
     end
@@ -226,9 +249,15 @@ local function OnAddonMessage(_, prefix, text, channel, sender)
 
     -- The sender's full name: what they say it is, but only if it really is their name
     -- (it must match the name the game gives for the sender), else the roster's version.
+    if ns.IsOwnSender(who) then return end   -- our own message coming back
     local name = ns.FullName(who)
-    if claimed and claimed ~= "" and #claimed <= 60 and ns.SameName(claimed, who) then name = claimed end
-    if ns.IsMe(name) then return end   -- our own message coming back
+    if claimed and claimed ~= "" and #claimed <= 60 and not claimed:find("[|%c]") then
+        if Norm(claimed) == Norm(who) then
+            name = claimed
+        elseif ns.SameName(claimed, who) and ns.rosterFirst and ns.rosterFirst[Norm(who)] == claimed then
+            name = claimed   -- the only guild member with that first name
+        end
+    end
 
     local board = Board()
     board[who] = nil   -- an older entry stored under the short name
@@ -258,6 +287,7 @@ function ns.ReadBankLog()
     local obs = {}
     for i = 1, n do
         local okT, kind, name, amount, years, months, days, hours = pcall(GetGuildBankMoneyTransaction, i)
+        if okT and not (ok(years) and ok(months) and ok(days) and ok(hours)) then okT = false end
         local t = okT and ok(kind) and ns.LEDGER_TYPES[kind]
         if t and ok(name) and ok(amount) and (tonumber(amount) or 0) >= 1 then
             local ageHours = ((tonumber(years) or 0) * 365 + (tonumber(months) or 0) * 30
@@ -376,10 +406,11 @@ function ns.BoardRows()
         end
     end
     for _, r in ipairs(rows) do
-        r.score = (r.paidIn or 0) * 2 + (r.donated or 0)   -- verified gold counts first
+        r.score = r.paidIn or 0   -- ranked by verified gold; the self-reported total only breaks ties
     end
     table.sort(rows, function(a, b)
         if a.score ~= b.score then return a.score > b.score end
+        if (a.donated or 0) ~= (b.donated or 0) then return (a.donated or 0) > (b.donated or 0) end
         return a.name < b.name
     end)
     return rows
@@ -408,7 +439,17 @@ ns.On("PLAYER_LOGIN", function()
         ns.ScanRoster()
     end)
 end)
-ns.On("GUILD_ROSTER_UPDATE", function() ns.ScanRoster(); ns.ReadGuildRate() end)
+-- The roster event can fire often; do the work at most once every few seconds.
+local rosterPending = false
+ns.On("GUILD_ROSTER_UPDATE", function()
+    if rosterPending then return end
+    rosterPending = true
+    C_Timer.After(2, function()
+        rosterPending = false
+        ns.ScanRoster()
+        ns.ReadGuildRate()
+    end)
+end)
 ns.On("PLAYER_GUILD_UPDATE", function() ns.ReadGuildRate() end)
 ns.On("PLAYER_LOGIN", function()
     if ns.db then ns.guildRate = ns.Char().guildRate end   -- last known, until the guild info loads

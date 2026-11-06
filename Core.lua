@@ -77,11 +77,22 @@ function ns.ParseMoney(text)
     return math.floor(total + 0.5)
 end
 
+-- Compact money for narrow places: big amounts in gold only ("1234g"), then gold and silver.
+function ns.ShortCoin(copper)
+    copper = math.floor(tonumber(copper) or 0)
+    if copper >= 1000000 then return math.floor(copper / 10000) .. "g" end
+    if copper >= 10000 then
+        local s = math.floor((copper % 10000) / 100)
+        return math.floor(copper / 10000) .. "g" .. (s > 0 and (" " .. s .. "s") or "")
+    end
+    return ns.CoinText(copper)
+end
+
 -- The reserve as text: "none" or e.g. "100g".
 function ns.ReserveText(copper)
     copper = tonumber(copper) or 0
     if copper <= 0 then return "none" end
-    return ns.CoinText(copper)
+    return ns.ShortCoin(copper)
 end
 
 -- Register an event. Unknown events on this client are recorded, not fatal.
@@ -137,7 +148,8 @@ end
 
 -- Character key: Forever names can be "first last", so keep the whole name.
 function ns.CharKey()
-    local name = UnitName("player") or "?"
+    local name = UnitName("player")
+    if not name or ns.isSecret(name) then name = "?" end
     local realm = (GetNormalizedRealmName and GetNormalizedRealmName())
         or (GetRealmName and GetRealmName()) or ""
     return name .. "-" .. realm

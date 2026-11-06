@@ -134,6 +134,10 @@ local function installGlobals()
         S.ownDeposits[#S.ownDeposits + 1] = { bankType = bankType, amount = amount }
         if S.ownDepositWorks ~= false then S.money = S.money - amount; S.fire("PLAYER_MONEY") end
     end }
+    _G.hooksecurefunc = function(name, fn)
+        local orig = _G[name]
+        _G[name] = function(...) orig(...); fn(...) end
+    end
     _G.AUCTION_SOLD_MAIL_SUBJECT = "Auction successful: %s"
     _G.GetInboxNumItems = function() return S.inbox and #S.inbox or 0 end
     _G.GetInboxHeaderInfo = function(i)
@@ -754,7 +758,7 @@ end
 
 do -- someone asks who uses the addon: we answer after a pause, and not in a flood
     local ns = fresh()
-    advance(16); advance(20); S.sent = {}
+    advance(16); advance(610); S.sent = {}   -- hellos are answered only if we have not shared for 10 minutes
     receive("New-Realm", "H|1")
     eq(#S.sent, 0, "reply is delayed")
     advance(11)
@@ -1029,7 +1033,7 @@ end
 do -- with no roster (no guild), first-name matching is the fallback
     local ns = fresh({ unitName = "Leeroy" })
     receive("Cara-Realm", "1|10|300|1|1700000000|Cara Jones")
-    truthy(rowFor(ns, "Cara Jones"), "full name sent by the player is used")
+    truthy(rowFor(ns, "Cara"), "without a roster, a claimed full name is not trusted")
     S.bankLog = { { "deposit", "Cara Jones", 300, 0, 0, 0, 0 } }
     S.fire("GUILDBANKLOG_UPDATE")
     eq(#ns.BoardRows(), 2, "her bank-log entry joins her row (you + Cara)")
@@ -1227,6 +1231,12 @@ do -- promotions: officers only, threshold and window set in the UI, one click t
     eq(b.lines[1].promote._shown, true, "Promote button shown")
     b.lines[1].promote.scripts.OnClick(b.lines[1].promote)
     eq(promoted, "Bob Smith-Realm", "clicking Promote promotes that member (full name for the game)")
+    promoted = nil
+    b.lines[1].promote.scripts.OnClick(b.lines[1].promote)
+    eq(promoted, nil, "a second click does not promote twice")
+    eq(b.lines[1][2]._text, "Dan Brown", "Bob leaves the list until the roster refreshes")
+    advance(2)
+    S.fire("GUILD_ROSTER_UPDATE"); advance(3)
     ns.db.promoAmount = 10000
     ns.RefreshBoard()
     eq(#ns.PromotionCandidates(), 1, "at 1g only Bob qualifies")
@@ -1326,7 +1336,7 @@ end
 
 do -- guild rate from the guild info text
     local ns = fresh({ guildInfo = "Welcome! Guild tax: [coffers:15] please." })
-    S.fire("GUILD_ROSTER_UPDATE")
+    S.fire("GUILD_ROSTER_UPDATE"); advance(3)
     eq(ns.Rate(), 15, "members follow the guild's rate")
     truthy(printedAny("guild's tax rate is 15%"), "told the guild rate")
     gain(10 * GOLD)
@@ -1340,15 +1350,134 @@ do -- guild rate from the guild info text
     eq(ns.db.rateMode, "own", "own rate remembered")
     eq(p.useGuild._shown, true, "Use guild rate button appears")
     S.guildInfo = "[coffers:20]"
-    S.fire("GUILD_ROSTER_UPDATE")
+    S.fire("GUILD_ROSTER_UPDATE"); advance(3)
     eq(ns.Rate(), 16, "your own rate is kept when officers change theirs")
     p.useGuild.scripts.OnClick(p.useGuild)
     eq(ns.Rate(), 20, "Use guild rate follows the guild again")
     S.guildInfo = "no tag here"
-    S.fire("GUILD_ROSTER_UPDATE")
+    S.fire("GUILD_ROSTER_UPDATE"); advance(3)
     eq(ns.Rate(), 16, "no guild rate: your own last rate applies")
     ns.HandleCommand("rate guild")
     eq(ns.db.rateMode, "guild", "/coffers rate guild")
+end
+
+---------------------------------------------------------------------------
+-- Review fixes
+---------------------------------------------------------------------------
+
+do -- a deposit is credited even if the bank closes before the gold leaves
+    local ns = fresh()
+    ns.Char().owed = 5 * GOLD
+    S.depositWorks = false                  -- the gold will leave late
+    S.fire("GUILDBANKFRAME_OPENED"); advance(1)
+    S.fire("GUILDBANKFRAME_CLOSED"); advance(2)
+    S.money = S.money - 5 * GOLD; S.fire("PLAYER_MONEY")
+    eq(math.floor(ns.Char().owed), 0, "credited although the window had closed")
+    eq(ns.Char().donated, 5 * GOLD, "counted as donated")
+end
+
+do -- tracking off stops automatic deposits; buying a bank tab is not a donation
+    local ns = fresh()
+    ns.HandleCommand("off")
+    ns.Char().owed = 5 * GOLD
+    S.fire("GUILDBANKFRAME_OPENED"); advance(1)
+    eq(#S.deposits, 0, "no automatic deposit with tracking off")
+    S.fire("GUILDBANKFRAME_CLOSED")
+    local ns2 = fresh()
+    _G.BuyGuildBankTab = function() end
+    local ns3 = fresh()
+    S.fire("GUILDBANKFRAME_OPENED"); advance(1)
+    _G.BuyGuildBankTab()
+    lose(10 * GOLD)
+    eq(ns3.Char().donated, 0, "buying a bank tab is not counted as a donation")
+    lose(2 * GOLD); advance(4)
+    lose(3 * GOLD)
+    eq(ns3.Char().donated, 3 * GOLD, "a later hand deposit is still credited")
+    S.fire("GUILDBANKFRAME_CLOSED")
+    _G.BuyGuildBankTab = nil
+end
+
+do -- an auction sale matches only once; a later player mail of the same amount is not taxed
+    local ns = fresh()
+    S.inbox = { { "Auction House", "Auction successful: Linen Cloth", 3 * GOLD, "seller" } }
+    S.fire("MAIL_SHOW")
+    S.fire("MAIL_INBOX_UPDATE"); S.fire("MAIL_INBOX_UPDATE")    -- rescans do not add it twice
+    plain(3 * GOLD)
+    eq(ns.Char().owed, 3000, "the sale is taxed")
+    S.inbox = { { "Friend", "here you go", 3 * GOLD } }
+    S.fire("MAIL_INBOX_UPDATE")
+    plain(3 * GOLD)
+    eq(ns.Char().owed, 3000, "a player's mail of the same amount is not")
+    S.fire("MAIL_CLOSED")
+end
+
+do -- history flooding: per-sender limit, escape codes, non-members, observer cap
+    local ns = fresh({ roster = { { "Bob Smith-Realm", "Player-1-0003", "Member", 3 },
+        { "Eve Liar-Realm", "Player-1-0009", "Member", 3 }, { "Dan Brown-Realm", "Player-1-0005", "Member", 3 },
+        { "Fay Lee-Realm", "Player-1-0006", "Member", 3 }, { "Gus Hill-Realm", "Player-1-0007", "Member", 3 } } })
+    advance(4)
+    local h = ns.Hour()
+    for i = 1, 30 do
+        local items = {}
+        for j = 1, 6 do items[#items + 1] = "d," .. (i * 10 + j) .. "," .. h .. ",Bob Smith" end
+        receive("Eve Liar-Realm", "L|" .. table.concat(items, ";"))
+    end
+    eq(#ns.Ledger().list, 100, "one guildmate can add at most 100 entries an hour")
+    local before = #ns.Ledger().list
+    receive("Dan Brown-Realm", "L|d,5," .. h .. ",|cff40ff40Fake")
+    receive("Dan Brown-Realm", "L|d,5," .. h .. ",Not In Guild")
+    eq(#ns.Ledger().list, before, "names with escape codes or outside the guild are refused")
+    local msg = "L|d,777," .. h .. ",Bob Smith"
+    for _, who in ipairs({ "Dan Brown-Realm", "Fay Lee-Realm", "Gus Hill-Realm", "Bob Smith-Realm" }) do
+        receive(who, msg)
+    end
+    local e
+    for _, x in ipairs(ns.Ledger().list) do if x.a == 777 then e = x end end
+    local n = 0
+    for _ in pairs(e.by) do n = n + 1 end
+    eq(n, 3, "an entry remembers at most three reporters")
+end
+
+do -- the leaderboard is ranked by verified gold, not by what players claim
+    local ns = fresh()
+    receive("Mal-Realm", "1|10|999999999999|1|1700000000|")
+    S.bankLog = { { "deposit", "Bob Smith", 20000, 0, 0, 0, 1 } }
+    S.fire("GUILDBANKLOG_UPDATE")
+    eq(ns.BoardRows()[1].name, "Bob Smith", "verified donor ranks above a huge claimed total")
+end
+
+do -- promotions need the officer to have seen it, or three reporters
+    local ns = fresh({ unitName = "Leeroy", roster = ROSTER })
+    _G.CanGuildPromote = function() return true end
+    advance(4)
+    local h = ns.Hour() - 1
+    receive("Cara Jones-Realm", "L|d,50000," .. h .. ",Dan Brown")
+    receive("Bob Smith-Realm", "L|d,50000," .. h .. ",Dan Brown")
+    eq(ns.LedgerTotals()["dan brown"].paidIn, 50000, "two reporters: verified on the leaderboard")
+    eq(#ns.PromotionCandidates(), 0, "but not enough for the promotions list")
+    S.bankLog = { { "deposit", "Dan Brown", 50000, 0, 0, 0, 1 } }
+    S.fire("GUILDBANKLOG_UPDATE")
+    eq(#ns.PromotionCandidates(), 1, "once the officer sees it in the log, it counts")
+    _G.CanGuildPromote = nil
+end
+
+do -- a shared first name cannot be used to take over someone else's name
+    local ns = fresh({ unitName = "Bob", myGuid = "Player-1-0003", roster = {
+        { "Leeroy Mcbiff-Realm", "Player-1-0001", "Member", 3 },
+        { "Leeroy Jenkins-Realm", "Player-1-0002", "Member", 3 },
+        { "Bob Smith-Realm", "Player-1-0003", "Member", 3 },
+    } })
+    advance(4)
+    receive("Leeroy-Realm", "1|10|500|1|1700000000|Leeroy Jenkins")
+    local jenkins = rowFor(ns, "Leeroy Jenkins")
+    eq(jenkins and jenkins.donated, nil, "an ambiguous first-name sender cannot claim a full name")
+end
+
+do -- compact money text
+    local ns = fresh()
+    eq(ns.ShortCoin(1234567890), "123456g", "big amounts in gold only")
+    eq(ns.ShortCoin(55000), "5g 50s", "gold and silver")
+    eq(ns.ShortCoin(55), "55c", "small amounts in full")
 end
 
 real_print(string.format("%d checks passed, %d failed", passed, failures))
