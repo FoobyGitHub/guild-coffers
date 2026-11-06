@@ -5,6 +5,9 @@ All notable changes to Guild Coffers are recorded here.
 ## [Unreleased] (alpha)
 
 ### Added
+- Only genuine earnings are taxed: looted gold (including your share of group loot), vendor sales and auction house sales. Gold mailed by players, including your own characters, outbid refunds, trades, quest rewards and other refunds are no longer taxed.
+- "Deposit once owed" minimum (default 1g, 0 = every time): the automatic deposit waits until this much is owed, so the guild bank log is not filled with tiny deposits. "Deposit now" ignores it. Also `/coffers min 50s`.
+- Guild rate: officers write `[coffers:N]` in the guild info text and members follow it, unless they set their own rate ("Use guild rate" or `/coffers rate guild` to switch back). Members are told when the guild rate changes.
 - Donation history: deposits, withdrawals and repairs from the guild bank log are recorded and shared between guildmates, so history builds up beyond what the game's log holds. Entries are matched so the same deposit is never counted twice. An entry is verified when you saw it yourself or two different guildmates reported it. Guildmates who log in later catch up automatically. A possible gap is flagged if a new log does not overlap the history.
 - Leaderboard shows every guild member (from the roster), with verified Paid in, Taken out and their Ratio, plus each addon user's rate and reported total. Scroll with the mouse wheel for big guilds.
 - Officer-only Promotions view (`/coffers promote`, or the Promotions button on the leaderboard): members below you whose verified deposits reach an amount you set (any, or a gold amount) in a window you set (days, or all time), each with a one-click Promote button. Nothing is promoted automatically.

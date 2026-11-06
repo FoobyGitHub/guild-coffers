@@ -64,7 +64,7 @@ local function RefreshHUD()
     if ns.db.enabled then
         hud.line1:SetText((ns.db.dest == "bank" and "Savings to keep: " or "Guild tax to keep: ")
             .. "|cffffd100" .. ns.OwedText(c.owed) .. "|r")
-        hud.line2:SetText(ns.CoinText(c.collected or 0) .. " collected at " .. ns.db.rate .. "%")
+        hud.line2:SetText(ns.CoinText(c.collected or 0) .. " collected at " .. ns.Rate() .. "%")
     else
         hud.line1:SetText("Guild tax: tracking off")
         hud.line2:SetText("type /coffers to turn it on")
@@ -77,7 +77,13 @@ end
 
 local function RefreshPanel(p)
     local c = ns.Char()
-    Safe("rate text", function() p.rateText:SetText(ns.db.rate .. "%") end)
+    Safe("rate text", function()
+        p.rateText:SetText(ns.Rate() .. "%")
+        local following = ns.db.rateMode ~= "own" and ns.guildRate ~= nil
+        p.rateNote:SetText(following and "guild rate" or "")
+        p.useGuild:SetShown(ns.db.rateMode == "own" and ns.guildRate ~= nil)
+    end)
+    Safe("minimum text", function() p.minText:SetText(ns.ReserveText(ns.db.minDeposit)) end)
     Safe("destination", function()
         local own = ns.db.dest == "bank"
         if p.destDropdown and p.destDropdown.GenerateMenu then p.destDropdown:GenerateMenu() end
@@ -204,7 +210,7 @@ local function BuildPanel(parent)
         local b = CreateFrame("Button", nil, p, "UIPanelButtonTemplate")
         b:SetSize(width, 22)
         b:SetText(text)
-        b:SetScript("OnClick", function() ns.SetRate((ns.db.rate or 0) + delta) end)
+        b:SetScript("OnClick", function() ns.SetRate((ns.Rate() or 0) + delta) end)
         return b
     end
     p.minus5 = RateButton("-5", 32, -5)
@@ -219,6 +225,17 @@ local function BuildPanel(parent)
     p.plus:SetPoint("LEFT", p.rateText, "RIGHT", 6, 0)
     p.plus5 = RateButton("+5", 32, 5)
     p.plus5:SetPoint("LEFT", p.plus, "RIGHT", 4, 0)
+    p.rateNote = p:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+    p.rateNote:SetPoint("LEFT", p.plus5, "RIGHT", 8, 0)
+    p.rateNote:SetTextColor(0.7, 0.7, 0.7)
+    p.useGuild = CreateFrame("Button", nil, p, "UIPanelButtonTemplate")
+    p.useGuild:SetSize(120, 22)
+    p.useGuild:SetPoint("LEFT", p.plus5, "RIGHT", 8, 0)
+    p.useGuild:SetText("Use guild rate")
+    p.useGuild:SetScript("OnClick", function() ns.UseGuildRate() end)
+    Tip(p.useGuild, "Use guild rate", "Your officers have set a guild tax rate in the guild info. "
+        .. "Click to follow it instead of your own rate.")
+    p.useGuild:Hide()
 
     -- Minimum to keep: a deposit never takes you below this. Buttons for quick changes;
     -- /coffers reserve 5g 50s sets an exact amount.
@@ -256,18 +273,48 @@ local function BuildPanel(parent)
     r5:SetPoint("LEFT", r4, "RIGHT", 2, 0)
     local r6 = ReserveButton("+100g", 1000000)
     r6:SetPoint("LEFT", r5, "RIGHT", 2, 0)
-    local hint = Label(p, "GameFontHighlightSmall", "TOPLEFT", 130, -256,
-        "Hover for help. Exact amount: /coffers reserve 5g 50s")
+    -- Minimum deposit: the automatic deposit waits until this much is owed.
+    local MIN_TIP = "The automatic deposit waits until you owe at least this much, so the guild bank "
+        .. "log is not filled with tiny deposits. \"Deposit now\" ignores it. 0 deposits every time.\n\n"
+        .. "For an exact amount, type /coffers min 50s in chat (g = gold, s = silver, c = copper)."
+    Label(p, "GameFontHighlight", "TOPLEFT", 20, -266, "Deposit once owed")
+    local minHit = CreateFrame("Frame", nil, p)
+    minHit:SetSize(110, 22)
+    minHit:SetPoint("TOPLEFT", 16, -262)
+    Tip(minHit, "Deposit once owed", MIN_TIP)
+    local function MinButton(text, delta)
+        local b = CreateFrame("Button", nil, p, "UIPanelButtonTemplate")
+        b:SetSize(42, 22)
+        b:SetText(text)
+        b:SetScript("OnClick", function() ns.SetMinDeposit((ns.db.minDeposit or 0) + delta) end)
+        Tip(b, "Deposit once owed", MIN_TIP)
+        return b
+    end
+    local m1 = MinButton("-1g", -10000)
+    m1:SetPoint("TOPLEFT", 130, -262)
+    local m2 = MinButton("-10s", -1000)
+    m2:SetPoint("LEFT", m1, "RIGHT", 2, 0)
+    p.minText = p:CreateFontString(nil, "OVERLAY", "GameFontNormalLarge")
+    p.minText:SetPoint("LEFT", m2, "RIGHT", 6, 0)
+    p.minText:SetWidth(90)
+    p.minText:SetJustifyH("CENTER")
+    local m3 = MinButton("+10s", 1000)
+    m3:SetPoint("LEFT", p.minText, "RIGHT", 6, 0)
+    local m4 = MinButton("+1g", 10000)
+    m4:SetPoint("LEFT", m3, "RIGHT", 2, 0)
+
+    local hint = Label(p, "GameFontHighlightSmall", "TOPLEFT", 130, -290,
+        "Hover for help. Exact amounts: /coffers reserve 5g, /coffers min 50s")
     hint:SetTextColor(0.7, 0.7, 0.7)
 
-    p.owed = Label(p, "GameFontHighlight", "TOPLEFT", 20, -284)
-    p.collected = Label(p, "GameFontHighlight", "TOPLEFT", 20, -306)
-    p.donated = Label(p, "GameFontHighlight", "TOPLEFT", 20, -328)
-    p.last = Label(p, "GameFontHighlight", "TOPLEFT", 20, -350)
+    p.owed = Label(p, "GameFontHighlight", "TOPLEFT", 20, -314)
+    p.collected = Label(p, "GameFontHighlight", "TOPLEFT", 20, -336)
+    p.donated = Label(p, "GameFontHighlight", "TOPLEFT", 20, -358)
+    p.last = Label(p, "GameFontHighlight", "TOPLEFT", 20, -380)
 
     local deposit = CreateFrame("Button", nil, p, "UIPanelButtonTemplate")
     deposit:SetSize(120, 24)
-    deposit:SetPoint("TOPLEFT", 20, -384)
+    deposit:SetPoint("TOPLEFT", 20, -412)
     deposit:SetText("Deposit now")
     deposit:SetScript("OnClick", function() ns.TryDeposit(true) end)
 
@@ -305,7 +352,7 @@ local function BuildPanel(parent)
         .. "Players whose deposits show in the guild bank log are marked Verified.")
     p.boardBtn = boardBtn
 
-    p.version = Label(p, "GameFontHighlightSmall", "TOPLEFT", 20, -418, "Version " .. ns.GetVersion())
+    p.version = Label(p, "GameFontHighlightSmall", "TOPLEFT", 20, -446, "Version " .. ns.GetVersion())
 
     -- Refresh whenever the panel is shown, so nothing depends on when it was built.
     p:SetScript("OnShow", function() RefreshPanel(p) end)
@@ -345,7 +392,7 @@ end
 
 local function BuildWindow()
     local w = CreateFrame("Frame", "GuildCoffersWindow", UIParent, "BasicFrameTemplateWithInset")
-    w:SetSize(520, 450)
+    w:SetSize(520, 480)
     w:SetPoint("CENTER")
     w:SetMovable(true)
     w:EnableMouse(true)

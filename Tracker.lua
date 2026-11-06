@@ -120,6 +120,9 @@ function ns.TryDeposit(manual)
     local c = ns.Char()
     local money = GetMoney()
     if ns.isSecret(money) then return end
+    -- The automatic deposit waits until enough is owed, so tiny amounts do not fill the
+    -- guild bank log. "Deposit now" ignores this.
+    if not manual and c.owed < (ns.db.minDeposit or 0) then return end
     -- Never take the player below their chosen minimum.
     local reserve = ns.db.reserve or 0
     local amount = math.floor(math.min(c.owed, money - reserve))
@@ -208,6 +211,78 @@ local function QueueChat(gain, tax)
     end
 end
 
+---------------------------------------------------------------------------
+-- Which gold counts as income. Only genuine earnings are taxed:
+--   * gold you loot (from a loot window, or your share of a group's loot),
+--   * vendor sales (gold received while a merchant window is open),
+--   * auction house sales (the "Auction successful" mail).
+-- Everything else is left alone: trades, mail from players (including your own
+-- characters), quest rewards, refunds and bank withdrawals.
+---------------------------------------------------------------------------
+
+local LOOT_MSG_WAIT = 1.0   -- seconds to wait for the loot chat message after gold arrives
+local pendingGains = {}     -- gold that arrived with no clear source, waiting for a loot message
+
+-- Money-bearing mail seen in the inbox, as two snapshots (the newest and the one before),
+-- so a payment can be matched even if the inbox refreshes before the gold arrives.
+local mailNow, mailBefore = {}, {}
+local saleSubject           -- "Auction successful: (.+)" built from the game's own text
+
+local function IsSaleMail(index, subject)
+    if GetInboxInvoiceInfo then
+        local okI, invoiceType = pcall(GetInboxInvoiceInfo, index)
+        if okI and invoiceType == "seller" then return true end
+    end
+    if not saleSubject and type(AUCTION_SOLD_MAIL_SUBJECT) == "string" then
+        saleSubject = "^" .. AUCTION_SOLD_MAIL_SUBJECT:gsub("([%%%(%)%.%+%-%*%?%[%]%^%$])", "%%%1"):gsub("%%%%s", ".+")
+    end
+    return saleSubject ~= nil and type(subject) == "string" and subject:find(saleSubject) ~= nil
+end
+
+local function ScanInbox()
+    if not (GetInboxNumItems and GetInboxHeaderInfo) then return end
+    local okN, n = pcall(GetInboxNumItems)
+    if not okN or ns.isSecret(n) or type(n) ~= "number" then return end
+    local snap = {}
+    for i = 1, n do
+        local okH, _, _, _, subject, money = pcall(GetInboxHeaderInfo, i)
+        if okH and not ns.isSecret(money) and type(money) == "number" and money > 0 then
+            snap[#snap + 1] = { money = money, sale = IsSaleMail(i, subject) }
+        end
+    end
+    mailBefore, mailNow = mailNow, snap
+end
+
+-- Is this payment an auction house sale? Matched by amount against the inbox.
+local function MailGainIsSale(amount)
+    for _, list in ipairs({ mailNow, mailBefore }) do
+        for i, m in ipairs(list) do
+            if m.money == amount then
+                table.remove(list, i)
+                return m.sale
+            end
+        end
+    end
+    return false   -- not recognised: treat as ordinary mail, not taxed
+end
+
+local function Tax(delta)
+    local c = ns.Char()
+    local rate = ns.Rate()
+    c.owed = c.owed + delta * rate / 100
+    c.collected = (c.collected or 0) + delta
+    if ns.db.showChat then QueueChat(delta, delta * rate / 100) end
+    if ns.RefreshUI then ns.RefreshUI() end
+end
+
+local function OnLootMessage()
+    -- Your loot, or your share of a group's loot. The gold may already have arrived.
+    graceUntil.lootmsg = now() + LOOT_MSG_WAIT
+    local waiting = pendingGains
+    pendingGains = {}
+    for _, p in ipairs(waiting) do Tax(p.delta) end
+end
+
 local function OnMoneyChanged()
     local money = GetMoney()
     if ns.isSecret(money) then return end
@@ -220,14 +295,22 @@ local function OnMoneyChanged()
     if delta == 0 then return end
 
     if delta > 0 then
-        -- Gold in. Ignore withdrawals and trades; count loot, quests, vendors and mail.
         if not ns.db.enabled then return end
-        if isOpen("guildbank") or isOpen("bank") or isOpen("trade") then return end
-        local c = ns.Char()
-        c.owed = c.owed + delta * ns.db.rate / 100
-        c.collected = (c.collected or 0) + delta
-        if ns.db.showChat then QueueChat(delta, delta * ns.db.rate / 100) end
-        if ns.RefreshUI then ns.RefreshUI() end
+        if isOpen("guildbank") or isOpen("bank") or isOpen("trade") then return end   -- withdrawals, trades
+        if isOpen("mail") then
+            if MailGainIsSale(delta) then Tax(delta) end      -- auction sales only
+        elseif isOpen("merchant") or isOpen("loot") or isOpen("lootmsg") then
+            Tax(delta)                                         -- vendor sales and loot
+        else
+            -- No clear source yet. If the loot chat message follows, it was loot.
+            local p = { delta = delta }
+            pendingGains[#pendingGains + 1] = p
+            C_Timer.After(LOOT_MSG_WAIT, function()
+                for i, q in ipairs(pendingGains) do
+                    if q == p then table.remove(pendingGains, i) break end   -- not loot: not taxed
+                end
+            end)
+        end
     elseif pending and pending.dest == "bank" and open.bank then
         -- Our own-bank deposit leaving. (Other gold spent at a bank is not counted.)
         RecordDeposit(math.min(-delta, pending.amount), "bank")
@@ -245,6 +328,11 @@ ns.On("PLAYER_LOGIN", function()
     if ns.isSecret(lastMoney) then lastMoney = nil end
 end)
 ns.On("PLAYER_MONEY", OnMoneyChanged)
+ns.On("CHAT_MSG_MONEY", OnLootMessage)
+ns.On("LOOT_OPENED", function() setOpen("loot", true) end)
+ns.On("LOOT_CLOSED", function() setOpen("loot", false) end)
+ns.On("MAIL_INBOX_UPDATE", ScanInbox)
+ns.On("MAIL_SHOW", function() mailNow, mailBefore = {}, {} ScanInbox() end)
 ns.On("MERCHANT_SHOW", function() setOpen("merchant", true) end)
 ns.On("MERCHANT_CLOSED", function() setOpen("merchant", false) end)
 ns.On("MAIL_SHOW", function() setOpen("mail", true) end)

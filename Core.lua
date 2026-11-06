@@ -8,7 +8,8 @@ ns.frame = CreateFrame("Frame")
 -- Forever inherits retail's "secret value" restrictions; guard where it exists.
 ns.isSecret = issecretvalue or function() return false end
 
-local DEFAULTS = { rate = 10, enabled = true, showHud = true, hudLocked = false, showChat = false, reserve = 0, dest = "guild", promoAmount = 0, promoDays = 30 }
+local DEFAULTS = { rate = 10, enabled = true, showHud = true, hudLocked = false, showChat = false, reserve = 0, dest = "guild", promoAmount = 0, promoDays = 30,
+    minDeposit = 10000, rateMode = "guild" }
 
 ---------------------------------------------------------------------------
 -- Helpers
@@ -122,6 +123,7 @@ ns.On("ADDON_LOADED", function(_, loaded)
     db.chars = db.chars or {}
     db.share = nil   -- old setting: sharing now simply follows the guild-bank choice
     db.bank = nil    -- old store of the current bank log; replaced by the donation history
+
     ns.db = db
 end)
 
@@ -152,6 +154,29 @@ function ns.Char()
     return c
 end
 
+-- The rate in use: the guild's rate (from the guild info text) unless the player has chosen
+-- their own.
+function ns.Rate()
+    if ns.db.rateMode ~= "own" and ns.guildRate then return ns.guildRate end
+    return ns.db.rate
+end
+
+function ns.UseGuildRate()
+    ns.db.rateMode = "guild"
+    if ns.ScheduleShare then ns.ScheduleShare() end
+    if ns.RefreshUI then ns.RefreshUI() end
+end
+
+-- Auto-deposit only once this much is owed (copper). 0 = every time.
+function ns.SetMinDeposit(copper)
+    local n = tonumber(copper)
+    if not n then return false end
+    n = math.max(0, math.min(math.floor(n), 100000 * 10000))
+    ns.db.minDeposit = n
+    if ns.RefreshUI then ns.RefreshUI() end
+    return true
+end
+
 function ns.SetRate(value)
     local n = tonumber(value)
     if not n then return false end
@@ -159,6 +184,7 @@ function ns.SetRate(value)
     if n < 0 then n = 0 end
     if n > 100 then n = 100 end
     ns.db.rate = n
+    ns.db.rateMode = "own"   -- the player chose their own rate
     if ns.ScheduleShare then ns.ScheduleShare() end
     if ns.RefreshUI then ns.RefreshUI() end
     return true
@@ -195,7 +221,7 @@ end
 local function PrintStatus()
     local c = ns.Char()
     ns.Print(string.format("tax %d%% (%s). Collected since last deposit: %s. Keep aside: %s. Total donated: %s. Always keep: %s.",
-        ns.db.rate, ns.db.enabled and "on" or "off",
+        ns.Rate(), ns.db.enabled and "on" or "off",
         ns.CoinText(c.collected or 0), ns.OwedText(c.owed), ns.CoinText(c.donated),
         ns.ReserveText(ns.db.reserve)))
     if c.lastDonated and date then
@@ -209,7 +235,9 @@ local function PrintHelp()
     print("  /coffers hud - show or hide the on-screen tax counter")
     print("  /coffers chat - show or hide a chat summary of the tax on your gains")
     print("  /coffers window - open the settings in a standalone window")
-    print("  /coffers rate <0-100> - set your tax percentage")
+    print("  /coffers rate <0-100> - set your own tax percentage")
+    print("  /coffers rate guild - use the rate your guild's officers set")
+    print("  /coffers min <amount> - deposit automatically only once this much is owed (default 1g)")
     print("  /coffers reserve <amount> - gold to always keep, e.g. 100g or 5g 50s (0 = none)")
     print("  /coffers reset - set the amount owed back to zero")
     print("  /coffers dest guild | bank - deposit to the guild bank (default) or your own bank")
@@ -266,6 +294,10 @@ local function PrintDebug()
         .. ", your rank index: " .. tostring(ns.myRankIndex))
     local l = ns.db and ns.db.ledger
     print("  History: " .. (l and #l.list or 0) .. " entries" .. (l and l.since and (" since " .. date("%Y-%m-%d %H:00", l.since * 3600)) or ""))
+    print("  Guild rate: " .. (ns.guildRate and (ns.guildRate .. "%") or "none set") .. " (GetGuildInfoText "
+        .. yn(GetGuildInfoText) .. "), following: " .. (ns.db and ns.db.rateMode ~= "own" and "guild" or "own rate"))
+    print("  Auction sale mail: GetInboxInvoiceInfo " .. yn(GetInboxInvoiceInfo)
+        .. ", AUCTION_SOLD_MAIL_SUBJECT " .. yn(AUCTION_SOLD_MAIL_SUBJECT))
     print("  Guild sharing: " .. yn((C_ChatInfo and C_ChatInfo.SendAddonMessage) or SendAddonMessage)
         .. ", IsInGuild: " .. yn(IsInGuild) .. ", bank log: " .. yn(QueryGuildBankLog and GetGuildBankMoneyTransaction))
     print("  Events this client rejected: " .. (#unknown > 0 and table.concat(unknown, ", ") or "none"))
@@ -284,9 +316,21 @@ function ns.HandleCommand(input)
     end
     if cmd == "" or cmd == "show" or cmd == "config" then
         if ns.ToggleUI then ns.ToggleUI() else PrintStatus() end
+    elseif cmd == "rate" and rest:lower() == "guild" then
+        ns.UseGuildRate()
+        ns.Print(ns.guildRate and ("using the guild's rate: " .. ns.guildRate .. "%.")
+            or "using the guild's rate when officers set one. Until then: " .. ns.db.rate .. "%.")
+    elseif cmd == "min" then
+        local copper = ns.ParseMoney(rest)
+        if copper and ns.SetMinDeposit(copper) then
+            ns.Print("automatic deposits wait until at least " .. ns.ReserveText(ns.db.minDeposit) .. " is owed.")
+        else
+            ns.Print("usage: /coffers min <amount>, e.g. 1g or 50s (0 deposits every time). Current: "
+                .. ns.ReserveText(ns.db.minDeposit))
+        end
     elseif cmd == "rate" then
         if ns.SetRate(rest) then
-            ns.Print("tax rate set to " .. ns.db.rate .. "%.")
+            ns.Print("tax rate set to " .. ns.db.rate .. "% (your own rate).")
         else
             ns.Print("usage: /coffers rate <0-100>")
         end

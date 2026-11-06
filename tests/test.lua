@@ -134,6 +134,17 @@ local function installGlobals()
         S.ownDeposits[#S.ownDeposits + 1] = { bankType = bankType, amount = amount }
         if S.ownDepositWorks ~= false then S.money = S.money - amount; S.fire("PLAYER_MONEY") end
     end }
+    _G.AUCTION_SOLD_MAIL_SUBJECT = "Auction successful: %s"
+    _G.GetInboxNumItems = function() return S.inbox and #S.inbox or 0 end
+    _G.GetInboxHeaderInfo = function(i)
+        local m = S.inbox[i]
+        return nil, nil, m[1], m[2], m[3], 0, 30, false, true, false, true, true, false
+    end
+    _G.GetInboxInvoiceInfo = S.noInvoice and nil or function(i)
+        local m = S.inbox[i]
+        return m[4]
+    end
+    _G.GetGuildInfoText = function() return S.guildInfo or "" end
     _G.UnitGUID = function() return S.myGuid or "Player-1-0001" end
     _G.GetNumGuildMembers = function() return S.roster and #S.roster or 0 end
     _G.GetGuildRosterInfo = function(i)
@@ -175,13 +186,18 @@ local function fresh(opts)
         assert(loadfile(file))("GuildCoffers", ns)
     end
     S.fire("ADDON_LOADED", "GuildCoffers")
+    if not S.keepMin then ns.db.minDeposit = 0 end   -- most tests deposit small amounts
     S.money = 50 * 10000
     S.fire("PLAYER_LOGIN")
     S.ns = ns
     return ns
 end
 
-local function gain(copper) S.money = S.money + copper; S.fire("PLAYER_MONEY") end
+-- gain(): gold looted from a loot window (taxable). plain(): gold with no source (e.g. a quest).
+local function gain(copper)
+    S.fire("LOOT_OPENED"); S.money = S.money + copper; S.fire("PLAYER_MONEY"); S.fire("LOOT_CLOSED")
+end
+local function plain(copper) S.money = S.money + copper; S.fire("PLAYER_MONEY") end
 local function lose(copper) S.money = S.money - copper; S.fire("PLAYER_MONEY") end
 local function printedAny(substr)
     for _, line in ipairs(S.printed) do
@@ -480,7 +496,8 @@ do -- the same from the classic-style events when the interaction enum lacks the
     S.fire("MERCHANT_CLOSED")
     truthy(printedAny("+40c received, tax 4c"), "summary at close (event fallback)")
     n = #S.printed
-    S.fire("MAIL_SHOW"); gain(5 * GOLD)
+    S.inbox = { { "Auction House", "Auction successful: Copper Ore", 5 * GOLD, "seller" } }
+    S.fire("MAIL_SHOW"); plain(5 * GOLD)
     eq(#S.printed, n, "held while the mailbox is open")
     S.fire("MAIL_CLOSED")
     truthy(printedAny("+5g received, tax 50s"), "mailbox summary at close")
@@ -1232,6 +1249,106 @@ do -- promotions are hidden from members who cannot promote
     ns.HandleCommand("board")
     eq(_G.GuildCoffersBoard.modeBtn._shown, false, "no Promotions button for members")
     ns.HandleCommand("board")
+end
+
+---------------------------------------------------------------------------
+-- What counts as income, minimum deposit, guild rate
+---------------------------------------------------------------------------
+
+do -- only loot, vendor sales and auction sales are taxed
+    local ns = fresh()
+    gain(10 * GOLD)
+    eq(ns.Char().owed, GOLD, "looted gold is taxed")
+    advance(2)
+    plain(10 * GOLD); advance(2)
+    eq(ns.Char().owed, GOLD, "gold with no source (e.g. a quest reward) is not taxed")
+    plain(4 * GOLD); S.fire("CHAT_MSG_MONEY", "Your share of the loot is 4 Gold.")
+    eq(ns.Char().owed, GOLD + 4000, "your share of group loot is taxed (message after the gold)")
+    S.fire("CHAT_MSG_MONEY", "You loot 2 Gold"); plain(2 * GOLD)
+    eq(ns.Char().owed, GOLD + 6000, "and when the message comes first")
+    advance(2)
+    S.fire("MERCHANT_SHOW"); plain(GOLD); S.fire("MERCHANT_CLOSED")
+    eq(ns.Char().owed, GOLD + 7000, "vendor sales are taxed")
+    advance(2)
+    S.fire("TRADE_SHOW"); plain(20 * GOLD); S.fire("TRADE_CLOSED")
+    eq(ns.Char().owed, GOLD + 7000, "trades are not taxed")
+end
+
+do -- mail: auction sales are taxed, mail from players (including your own alts) is not
+    local ns = fresh()
+    S.inbox = {
+        { "Myalt", "gold for you", 30 * GOLD, nil },
+        { "Auction House", "Auction successful: Linen Cloth", 3 * GOLD, "seller" },
+        { "Auction House", "Outbid on Copper Ore", 2 * GOLD, "buyer" },
+    }
+    S.fire("MAIL_SHOW")
+    plain(30 * GOLD)
+    eq(ns.Char().owed, 0, "gold mailed from your own character is not taxed")
+    plain(2 * GOLD)
+    eq(ns.Char().owed, 0, "an outbid refund is not taxed")
+    plain(3 * GOLD)
+    eq(ns.Char().owed, 3000, "an auction sale is taxed")
+    S.fire("MAIL_CLOSED")
+end
+
+do -- auction sale recognised by its subject when the invoice is not available
+    local ns = fresh({ noInvoice = true })
+    S.inbox = { { "Auction House", "Auction successful: Linen Cloth", 3 * GOLD } }
+    S.fire("MAIL_SHOW")
+    S.inbox = {}                 -- the inbox refreshes before the gold arrives
+    S.fire("MAIL_INBOX_UPDATE")
+    plain(3 * GOLD)
+    eq(ns.Char().owed, 3000, "still matched from the earlier inbox snapshot")
+    S.fire("MAIL_CLOSED")
+end
+
+do -- minimum deposit: automatic deposits wait until enough is owed; Deposit now ignores it
+    local ns = fresh({ keepMin = true })
+    eq(ns.db.minDeposit, GOLD, "default minimum is 1g")
+    ns.Char().owed = 5000                        -- 50s
+    S.fire("GUILDBANKFRAME_OPENED"); advance(1)
+    eq(#S.deposits, 0, "50s owed: no automatic deposit")
+    ns.TryDeposit(true)
+    eq(S.deposits[1], 5000, "Deposit now still deposits it")
+    S.fire("GUILDBANKFRAME_CLOSED")
+    ns.Char().owed = 2 * GOLD
+    S.fire("GUILDBANKFRAME_OPENED"); advance(1)
+    eq(S.deposits[2], 2 * GOLD, "2g owed: deposited automatically")
+    S.fire("GUILDBANKFRAME_CLOSED")
+    ns.HandleCommand("min 50s")
+    eq(ns.db.minDeposit, 5000, "/coffers min sets it")
+    ns.HandleCommand("min 0")
+    eq(ns.db.minDeposit, 0, "0 deposits every time")
+    ns.HandleCommand("window")
+    local p = ns.panels[#ns.panels]
+    eq(p.minText._text, "none", "panel shows the minimum")
+end
+
+do -- guild rate from the guild info text
+    local ns = fresh({ guildInfo = "Welcome! Guild tax: [coffers:15] please." })
+    S.fire("GUILD_ROSTER_UPDATE")
+    eq(ns.Rate(), 15, "members follow the guild's rate")
+    truthy(printedAny("guild's tax rate is 15%"), "told the guild rate")
+    gain(10 * GOLD)
+    eq(ns.Char().owed, 15000, "taxed at the guild rate")
+    ns.HandleCommand("window")
+    local p = ns.panels[#ns.panels]
+    eq(p.rateText._text, "15%", "panel shows the guild rate")
+    eq(p.rateNote._text, "guild rate", "and says it is the guild's")
+    p.plus.scripts.OnClick(p.plus)
+    eq(ns.Rate(), 16, "changing it makes it your own rate")
+    eq(ns.db.rateMode, "own", "own rate remembered")
+    eq(p.useGuild._shown, true, "Use guild rate button appears")
+    S.guildInfo = "[coffers:20]"
+    S.fire("GUILD_ROSTER_UPDATE")
+    eq(ns.Rate(), 16, "your own rate is kept when officers change theirs")
+    p.useGuild.scripts.OnClick(p.useGuild)
+    eq(ns.Rate(), 20, "Use guild rate follows the guild again")
+    S.guildInfo = "no tag here"
+    S.fire("GUILD_ROSTER_UPDATE")
+    eq(ns.Rate(), 16, "no guild rate: your own last rate applies")
+    ns.HandleCommand("rate guild")
+    eq(ns.db.rateMode, "guild", "/coffers rate guild")
 end
 
 real_print(string.format("%d checks passed, %d failed", passed, failures))

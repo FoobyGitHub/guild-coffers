@@ -6,7 +6,7 @@ A simple, passive guild tax for **World of Warcraft: Forever**. Choose a percent
 
 ## What it does
 
-- Tracks gold from loot, quests, vendors and mail, and works out your share.
+- Taxes only genuine earnings: gold you loot, vendor sales and auction house sales. Trades, mail from players (including your own characters), quest rewards, refunds and bank withdrawals are not taxed.
 - Deposits what you owe when you open the guild bank (or, if you choose, your own bank). Gold you deposit by hand while it is open is credited too.
 - Never takes you below the minimum you set: a deposit stops at your "Always keep" amount and the rest stays owed for next time.
 - Shows a guild leaderboard of every member: what they have paid in and taken out of the guild bank (verified from the bank log), the ratio between the two, and each addon user's rate and reported total.
@@ -21,13 +21,16 @@ Open them with `/coffers`, or ESC → Options → AddOns → Guild Coffers.
 | Setting | Default |
 |---|---|
 | Track gold and tax it | On |
-| Tax rate | 10% (change with -5, -, +, +5) |
+| Tax rate | Your guild's rate if officers set one, otherwise 10% (change with -5, -, +, +5) |
 | Always keep (minimum gold) | None (buttons, or `/coffers reserve 100g`) |
+| Deposit once owed | 1g (buttons, or `/coffers min 50s`; 0 = every time) |
 | Deposit to | The guild bank (or "My own bank") |
 | Show the tax counter on screen | On |
 | Lock the counter's position | Off |
 | Show tax in chat | Off |
 
+- **Guild rate:** officers can set the guild's rate by writing `[coffers:10]` (any number 0-100) in the guild info text. Members follow it automatically, unless they change their own rate; "Use guild rate" switches back.
+- **Deposit once owed:** the automatic deposit waits until you owe at least this much, so the guild bank log is not filled with tiny deposits. "Deposit now" ignores it.
 - **Always keep:** a deposit never leaves you with less than this. Enter an exact amount in gold, silver or copper, e.g. `/coffers reserve 5g 50s`.
 - **Reset amount owed:** sets what you owe back to zero (click twice to confirm). Your lifetime donated total is kept.
 - **Own bank:** for players without a guild, or who prefer to save. Tax is deposited into your own bank (the Warband bank) when you open it. It is kept out of the guild leaderboard and nothing is shared while this is on. `/coffers dest guild` or `/coffers dest bank` also switch it.
@@ -40,7 +43,9 @@ Open them with `/coffers`, or ESC → Options → AddOns → Guild Coffers.
 | Command | What it does |
 |---|---|
 | `/coffers` | Open the settings |
-| `/coffers rate <0-100>` | Set your tax percentage |
+| `/coffers rate <0-100>` | Set your own tax percentage |
+| `/coffers rate guild` | Follow the guild's rate |
+| `/coffers min <amount>` | Deposit automatically only once this much is owed |
 | `/coffers reserve <amount>` | Gold to always keep, e.g. `100g` or `5g 50s` (`0` for none) |
 | `/coffers reset` | Set the amount owed back to zero |
 | `/coffers dest guild` / `bank` | Deposit to the guild bank (default) or your own bank |

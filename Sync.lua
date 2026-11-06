@@ -156,7 +156,7 @@ function ns.ShareNow()
     local c = ns.Char()
     lastSent = now()
     local full = (c.fullName or ""):gsub("|", "")
-    Send(string.format("%d|%d|%d|%d|%d|%s", PROTOCOL, ns.db.rate or 0,
+    Send(string.format("%d|%d|%d|%d|%d|%s", PROTOCOL, ns.Rate() or 0,
         math.floor(c.donated or 0), c.deposits or 0, c.lastDonated or 0, full))
 end
 
@@ -349,7 +349,7 @@ function ns.BoardRows()
     if ns.db then
         local c = ns.Char()
         local me = row(ns.MyNames()[1] or "?")
-        me.rate, me.donated, me.deposits, me.last = ns.db.rate, math.floor(c.donated or 0),
+        me.rate, me.donated, me.deposits, me.last = ns.Rate(), math.floor(c.donated or 0),
             c.deposits or 0, c.lastDonated or 0
         me.usesAddon, me.me = true, true
         for name, e in pairs(Board()) do
@@ -408,6 +408,39 @@ ns.On("PLAYER_LOGIN", function()
         ns.ScanRoster()
     end)
 end)
-ns.On("GUILD_ROSTER_UPDATE", function() ns.ScanRoster() end)
+ns.On("GUILD_ROSTER_UPDATE", function() ns.ScanRoster(); ns.ReadGuildRate() end)
+ns.On("PLAYER_GUILD_UPDATE", function() ns.ReadGuildRate() end)
+ns.On("PLAYER_LOGIN", function()
+    if ns.db then ns.guildRate = ns.Char().guildRate end   -- last known, until the guild info loads
+end)
+
+-- Guild rate: officers write e.g. [coffers:10] in the guild info text (only ranks allowed to
+-- edit guild info can change it). Members follow it unless they have chosen their own rate.
+function ns.ReadGuildRate()
+    if not ns.db then return end
+    if not (IsInGuild and IsInGuild()) then
+        ns.guildRate = nil   -- no guild (or not loaded yet): keep the cached value for later
+        if ns.RefreshUI then ns.RefreshUI() end
+        return
+    end
+    local rate
+    if GetGuildInfoText then
+        local okT, text = pcall(GetGuildInfoText)
+        if okT and type(text) == "string" and not ns.isSecret(text) then
+            local n = text:lower():match("%[coffers:%s*(%d+)%s*%%?%s*%]")
+            if n then rate = math.min(100, tonumber(n)) end
+        end
+    end
+    local c = ns.Char()
+    if rate ~= c.guildRate then
+        if rate and ns.db.rateMode ~= "own" then
+            ns.Print("your guild's tax rate is " .. rate .. "% (set by officers in the guild info).")
+        end
+        c.guildRate = rate
+        if ns.ScheduleShare then ns.ScheduleShare() end
+    end
+    ns.guildRate = rate
+    if ns.RefreshUI then ns.RefreshUI() end
+end
 ns.On("CHAT_MSG_ADDON", OnAddonMessage)
 ns.On("GUILDBANKLOG_UPDATE", ns.ReadBankLog)
