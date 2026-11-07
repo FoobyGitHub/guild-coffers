@@ -168,11 +168,10 @@ end
 
 -- Can this client put gold in an account-wide (Warband) bank? Forever has no account bank yet,
 -- so the "own bank" option stays hidden until the game reports one is usable.
+-- Deliberately does not ask the game (C_Bank): calling the account-bank functions on Forever
+-- coincided with guild bank deposits being ignored for the rest of the session.
 function ns.OwnBankAvailable()
-    local bankType = Enum and Enum.BankType and Enum.BankType.Account
-    if not (bankType and C_Bank and C_Bank.DepositMoney and C_Bank.CanUseBank) then return false end
-    local okU, usable = pcall(C_Bank.CanUseBank, bankType)
-    return okU and usable == true
+    return false
 end
 
 -- The rate in use: the guild's rate (from the guild info text) unless the player has chosen
@@ -293,7 +292,6 @@ local function PrintDebug()
     local unknown = {}
     for event in pairs(ns.unknownEvents or {}) do unknown[#unknown + 1] = event end
     table.sort(unknown)
-    print("  Account (Warband) bank usable: " .. yn(ns.OwnBankAvailable()))
     print("  Own-bank deposit (C_Bank.DepositMoney): " .. yn(C_Bank and C_Bank.DepositMoney)
         .. ", Enum.BankType.Account: " .. yn(Enum and Enum.BankType and Enum.BankType.Account))
     pcall(function()
@@ -345,7 +343,11 @@ function ns.HandleCommand(input)
     elseif cmd == "min" then
         local copper = ns.ParseMoney(rest)
         if copper and ns.SetMinDeposit(copper) then
-            ns.Print("automatic deposits wait until at least " .. ns.ReserveText(ns.db.minDeposit) .. " is owed.")
+            if ns.db.minDeposit > 0 then
+                ns.Print("automatic deposits wait until at least " .. ns.ReserveText(ns.db.minDeposit) .. " is owed.")
+            else
+                ns.Print("automatic deposits happen every time you open the guild bank.")
+            end
         else
             ns.Print("usage: /coffers min <amount>, e.g. 1g or 50s (0 deposits every time). Current: "
                 .. ns.ReserveText(ns.db.minDeposit))

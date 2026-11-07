@@ -833,59 +833,6 @@ do -- the custom-amount tooltip and the new panel controls
     _G.GameTooltip = nil
 end
 
-do -- depositing to your own bank instead of the guild bank
-    local ns = fresh()
-    ns.HandleCommand("dest bank")
-    eq(ns.db.dest, "bank", "destination switched to own bank")
-    ns.Char().owed = 10 * GOLD
-    S.fire("GUILDBANKFRAME_OPENED"); advance(1)
-    eq(#S.deposits, 0, "guild bank untouched when the destination is own bank")
-    S.fire("GUILDBANKFRAME_CLOSED")
-    S.fire("BANKFRAME_OPENED"); advance(1)
-    eq(S.ownDeposits and #S.ownDeposits, 1, "own-bank deposit made when the bank opens")
-    eq(S.ownDeposits[1].bankType, 2, "uses the account (Warband) bank")
-    eq(S.ownDeposits[1].amount, 10 * GOLD, "full amount deposited")
-    eq(ns.Char().saved, 10 * GOLD, "recorded as saved")
-    eq(ns.Char().donated, 0, "not counted as a guild donation")
-    eq(ns.Char().deposits or 0, 0, "not counted as a guild deposit")
-    eq(math.floor(ns.Char().owed), 0, "owed is cleared")
-    S.fire("BANKFRAME_CLOSED")
-    advance(40)
-    eq(#S.sent, 0, "nothing is shared with the guild in own-bank mode")
-    ns.HandleCommand("dest guild")
-    eq(ns.db.dest, "guild", "switched back to the guild bank")
-    ns.HandleCommand("dest nonsense")
-    eq(ns.db.dest, "guild", "bad destination ignored")
-end
-
-do -- own bank: reserve applies, other bank spending is not a deposit, failures are reported
-    local ns = fresh()
-    ns.HandleCommand("dest bank")
-    ns.HandleCommand("reserve 45g")
-    ns.Char().owed = 10 * GOLD                 -- player has 50g
-    S.fire("BANKFRAME_OPENED"); advance(1)
-    eq(S.ownDeposits[1].amount, 5 * GOLD, "own-bank deposit stops at the reserve")
-    S.fire("BANKFRAME_CLOSED")
-    local ns2 = fresh({ ownDepositWorks = false })
-    ns2.HandleCommand("dest bank")
-    ns2.Char().owed = 10 * GOLD
-    S.fire("BANKFRAME_OPENED"); advance(1); advance(4)
-    truthy(printedAny("did not go through"), "a silent failure is reported")
-    eq(ns2.Char().saved, nil, "nothing recorded when the money did not leave")
-    S.fire("BANKFRAME_CLOSED")
-    local ns3 = fresh({ noOwnBank = true })
-    ns3.HandleCommand("dest bank")
-    ns3.Char().owed = 10 * GOLD
-    S.fire("BANKFRAME_OPENED"); advance(1)
-    truthy(printedAny("no account (Warband) bank"), "missing API is reported")
-    local ns4 = fresh()
-    ns4.HandleCommand("dest bank")
-    S.fire("BANKFRAME_OPENED")
-    lose(1 * GOLD)                              -- e.g. buying a bank slot, not our deposit
-    eq(ns4.Char().saved, nil, "other spending at the bank is not counted")
-    S.fire("BANKFRAME_CLOSED")
-end
-
 do -- /coffers log
     local ns = fresh()
     ns.HandleCommand("log")
@@ -899,23 +846,6 @@ do -- /coffers log
     S.fire("GUILDBANKFRAME_CLOSED")
 end
 
-do -- opening the guild bank while set to own bank gives a reminder, not silence
-    local ns = fresh()
-    ns.HandleCommand("dest bank")
-    ns.Char().owed = 5 * GOLD
-    S.printed = {}
-    S.fire("GUILDBANKFRAME_OPENED"); advance(1)
-    truthy(printedAny("set to your own bank"), "reminder shown at the guild bank")
-    eq(#S.deposits, 0, "still nothing deposited to the guild bank")
-    S.fire("GUILDBANKFRAME_CLOSED")
-    local ns2 = fresh()
-    ns2.Char().owed = 5 * GOLD
-    S.printed = {}
-    S.fire("GUILDBANKFRAME_OPENED"); advance(1)
-    eq(printedAny("set to your own bank"), false, "no reminder in guild mode")
-    S.fire("GUILDBANKFRAME_CLOSED")
-end
-
 local function menuItems(dd)
     local items = {}
     local root = { CreateRadio = function(_, text, isSel, setSel)
@@ -924,42 +854,6 @@ local function menuItems(dd)
     end }
     dd._gen(dd, root)
     return items
-end
-
-do -- destination: a dropdown with both choices, one selected
-    local ns = fresh()
-    ns.HandleCommand("window")
-    local p = ns.panels[#ns.panels]
-    truthy(p.destDropdown, "destination is a dropdown")
-    eq(p.destGuild, nil, "no tick boxes when the dropdown works")
-    local items = menuItems(p.destDropdown)
-    eq(#items, 2, "dropdown has both choices")
-    eq(items[1].text, "The guild bank", "first choice is the guild bank")
-    eq(items[1].isSel(), true, "guild bank selected by default")
-    eq(items[2].isSel(), false, "own bank not selected by default")
-    items[2].setSel()
-    eq(ns.db.dest, "bank", "choosing own bank")
-    items = menuItems(p.destDropdown)
-    eq(items[1].isSel(), false, "guild bank no longer selected")
-    eq(items[2].isSel(), true, "own bank selected")
-    items[1].setSel()
-    eq(ns.db.dest, "guild", "choosing the guild bank again, in one step")
-    ns.HandleCommand("dest bank")
-    eq(menuItems(p.destDropdown)[2].isSel(), true, "the command is reflected in the dropdown")
-end
-
-do -- if the dropdown cannot be built, linked options are used instead
-    local ns = fresh({ badTemplate = "WowStyle1DropdownTemplate" })
-    ns.HandleCommand("window")
-    local p = ns.panels[#ns.panels]
-    eq(p.destDropdown, nil, "no dropdown on a client without the template")
-    eq(p.destGuild._checked, true, "fallback: guild bank selected by default")
-    p.destBank.scripts.OnClick(p.destBank)
-    eq(ns.db.dest, "bank", "fallback: own bank chosen")
-    eq(p.destGuild._checked, false, "fallback: guild bank unticked")
-    p.destGuild.scripts.OnClick(p.destGuild)
-    eq(ns.db.dest, "guild", "fallback: one click switches back")
-    eq(printedAny("interface failed"), false, "falling back is not an error")
 end
 
 do -- defaults: guild bank and 10%, and /coffers defaults puts them back
@@ -1120,15 +1014,6 @@ do -- reading the log shares it with the guild, in messages that fit the size li
     local total = 0
     for _ in pairs(ns2.LedgerTotals()) do total = total + 1 end
     eq(total, 25, "a guildmate rebuilds all 25 entries from the messages")
-end
-
-do -- own-bank mode shares no history
-    local ns = fresh()
-    ns.HandleCommand("dest bank")
-    S.bankLog = { { "deposit", "Bob Smith", 20000, 0, 0, 0, 5 } }
-    S.fire("GUILDBANKLOG_UPDATE")
-    advance(30)
-    eq(#ledgerMsgs("L|"), 0, "no history sent in own-bank mode")
 end
 
 do -- catching up: ask at login; one guildmate answers with first-hand entries, others stay quiet
@@ -1390,25 +1275,13 @@ do -- a deposit is credited even if the bank closes before the gold leaves
     eq(ns.Char().donated, 5 * GOLD, "counted as donated")
 end
 
-do -- tracking off stops automatic deposits; buying a bank tab is not a donation
+do -- tracking off stops automatic deposits
     local ns = fresh()
     ns.HandleCommand("off")
     ns.Char().owed = 5 * GOLD
     S.fire("GUILDBANKFRAME_OPENED"); advance(1)
     eq(#S.deposits, 0, "no automatic deposit with tracking off")
     S.fire("GUILDBANKFRAME_CLOSED")
-    local ns2 = fresh()
-    _G.BuyGuildBankTab = function() end
-    local ns3 = fresh()
-    S.fire("GUILDBANKFRAME_OPENED"); advance(1)
-    _G.BuyGuildBankTab()
-    lose(10 * GOLD)
-    eq(ns3.Char().donated, 0, "buying a bank tab is not counted as a donation")
-    lose(2 * GOLD); advance(4)
-    lose(3 * GOLD)
-    eq(ns3.Char().donated, 3 * GOLD, "a later hand deposit is still credited")
-    S.fire("GUILDBANKFRAME_CLOSED")
-    _G.BuyGuildBankTab = nil
 end
 
 do -- an auction sale matches only once; a later player mail of the same amount is not taxed

@@ -329,9 +329,8 @@ local function OnMoneyChanged()
         -- Our deposit leaving. Credited even if the window was closed a moment before the
         -- gold actually left.
         RecordDeposit(math.min(-delta, pending.amount), pending.dest)
-    elseif isOpen("guildbank") and not isOpen("buytab") then
-        -- Gold out while the guild bank is open is the player's own deposit
-        -- (unless they are buying a bank tab).
+    elseif isOpen("guildbank") then
+        -- Gold out while the guild bank is open is the player's own deposit.
         RecordDeposit(-delta, "guild")
     end
 end
@@ -349,10 +348,6 @@ ns.On("QUEST_FINISHED", function() setOpen("quest", false) end)
 ns.On("LOOT_OPENED", function() setOpen("loot", true) end)
 ns.On("LOOT_CLOSED", function() setOpen("loot", false) end)
 ns.On("MAIL_INBOX_UPDATE", ScanInbox)
--- Buying a guild bank tab is spending, not a donation.
-if hooksecurefunc and BuyGuildBankTab then
-    hooksecurefunc("BuyGuildBankTab", function() graceUntil.buytab = now() + 3 end)
-end
 ns.On("MAIL_SHOW", function() ResetMail() ScanInbox() end)
 ns.On("MAIL_CLOSED", ResetMail)
 ns.On("MERCHANT_SHOW", function() setOpen("merchant", true) end)
